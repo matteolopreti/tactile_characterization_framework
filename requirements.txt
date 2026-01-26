@@ -1,0 +1,9 @@
+numpy
+pandas
+matplotlib
+PySide6
+pyqtgraph
+pyserial
+atiiaftt
+nidaqmx  # Optional, only if using NI DAQ
+# SPiiPlusPython  # Note: This is proprietary and installed manually, mention in docs

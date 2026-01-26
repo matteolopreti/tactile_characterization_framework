@@ -1,0 +1,139 @@
+import sys
+import os
+
+# Setup path to find interfaces
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
+
+from Interfaces.motion_stage import IMotionStage
+
+# --- CONDITIONAL IMPORT & MOCKING ---
+SP_AVAILABLE = False
+try:
+    # noinspection PyPep8Naming
+    import SPiiPlusPython as sp
+
+    SP_AVAILABLE = True
+except ImportError:
+    print("[ACS Driver] SPiiPlusPython not found. Running in SIMULATION MODE.")
+
+
+    # MOCK CLASS (Simulates the Hardware Library)
+    class MockSP:
+        class Axis:
+            ACSC_AXIS_0 = 0
+
+        SYNCHRONOUS = 1
+
+        # noinspection PyPep8Naming, PyUnusedLocal
+        @staticmethod
+        def OpenCommEthernetTCP(ip, port):
+            # Return a fake handle (integer)
+            return 1
+
+        # noinspection PyPep8Naming, PyUnusedLocal
+        @staticmethod
+        def CloseComm(handle):
+            pass
+
+        # noinspection PyPep8Naming, PyUnusedLocal
+        @staticmethod
+        def SetVelocityImm(handle, axis, vel):
+            pass
+
+        # noinspection PyPep8Naming, PyUnusedLocal
+        @staticmethod
+        def ToPoint(handle, flags, axis, target, mode):
+            pass
+
+        # noinspection PyPep8Naming, PyUnusedLocal
+        @staticmethod
+        def GetFPosition(handle, axis):
+            return 0.0
+
+
+    # Alias the mock so the code below uses it transparently
+    # noinspection PyPep8Naming
+    sp = MockSP()
+
+
+class ACSMotionStage(IMotionStage):
+    def __init__(self, ip="10.0.0.100", port=701):
+        self.ip = ip
+        self.port = port
+        self.hc = None
+
+        # Safe access to constants (Works with Real OR Mock lib)
+        self.axis_id = sp.Axis.ACSC_AXIS_0
+
+    def connect(self):
+        try:
+            if SP_AVAILABLE:
+                print(f"[ACS] Connecting to {self.ip}...")
+            else:
+                print("[ACS-SIM] Connecting to Mock Controller...")
+
+            self.hc = sp.OpenCommEthernetTCP(self.ip, self.port)
+            print("[ACS] Connected.")
+        except (RuntimeError, OSError) as e:
+            raise ConnectionError(f"Failed to connect to ACS: {e}")
+
+    def disconnect(self):
+        if self.hc is not None:
+            try:
+                sp.CloseComm(self.hc)
+            except (RuntimeError, OSError):
+                pass
+            finally:
+                self.hc = None
+
+    def move_to_absolute(self, z_mm: float, velocity: float):
+        if self.hc is None:
+            raise ConnectionError("ACS Controller not connected.")
+
+        try:
+            # 1. Set Velocity
+            sp.SetVelocityImm(self.hc, self.axis_id, velocity)
+
+            # 2. Move (Blocking)
+            sp.ToPoint(self.hc, 0, self.axis_id, z_mm, sp.SYNCHRONOUS)
+
+        except (RuntimeError, OSError) as e:
+            raise RuntimeError(f"ACS Move Error: {e}")
+
+    def move_relative(self, dist_mm: float, velocity: float):
+        if self.hc is None:
+            raise ConnectionError("ACS Controller not connected.")
+
+        try:
+            sp.SetVelocityImm(self.hc, self.axis_id, velocity)
+
+            current = self.get_position()
+            target = current + dist_mm
+
+            sp.ToPoint(self.hc, 0, self.axis_id, target, sp.SYNCHRONOUS)
+
+        except (RuntimeError, OSError) as e:
+            raise RuntimeError(f"ACS Relative Move Error: {e}")
+
+    def get_position(self) -> float:
+        if self.hc is None:
+            raise ConnectionError("ACS Controller not connected.")
+
+        try:
+            pos = sp.GetFPosition(self.hc, self.axis_id)
+            return float(pos)
+        except (RuntimeError, OSError, ValueError) as e:
+            raise RuntimeError(f"ACS Position Read Error: {e}")
+
+
+if __name__ == "__main__":
+    # Test the mock logic
+    driver = ACSMotionStage()
+    driver.connect()
+    print(f"Position: {driver.get_position()}")
+    driver.move_to_absolute(10.0, 1.0)
+    driver.disconnect()
+    print("Test Complete.")
