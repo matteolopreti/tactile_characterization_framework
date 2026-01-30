@@ -1,125 +1,92 @@
-# Tactile Sensor Characterization Suite
+# Tactile Sensor Characterization Framework
 
-A modular, hardware-agnostic Python framework for the reproducible characterization of soft tactile sensors.
+A modular, hardware-agnostic Python framework for repeatable tactile sensor characterization with a motion stage, load
+cell, and sensor under test.
 
-This suite implements the **"Two-Stage Characterization Pipeline"** (Benchtop Characterization & In-Situ Evaluation), ensuring metrological rigor through automated surface detection, viscoelastic relaxation handling, and synchronized high-speed data acquisition.
+## Features
 
-## 🌟 Key Features
+- Abstract interfaces for motion stage, load cell, and tactile sensor drivers
+- Real-time plotting with PySide6 and pyqtgraph
+- Background sampling threads to keep the UI responsive
+- Timestamped CSV and SQLite logging
 
-- **Universal Hardware Support:** Uses an Abstract Driver layer. Works with *any* motion stage (ACS, Thorlabs, Newport) or sensor (DAQ, Serial, Bluetooth) by simply writing a small wrapper class.
-- **Metrology-Grade Protocol:** * Automated **Contact Detection** (Surface Finding) to establish a repeatable datum ($h=0$).
-  - **Viscoelastic Relaxation** enforcement (ISO 14577 compliant) to prevent phase lag.
-  - **Hysteresis Analysis** via automated cycling.
-- **Real-Time Visualization:** Dual-axis PyQt5 dashboard plotting Force vs. Time and Sensor Signal vs. Time simultaneously.
-- **High-Performance Logging:** Uses `multiprocessing` to decouple high-speed sensor reading from the UI thread, ensuring no data loss.
+## Quick start (simulation)
 
-## 🛠️ Installation
+1. Open the GUI and set Hardware Mode to `sim`, or edit `config/hardware.json` and set `"mode": "sim"`.
+2. Run:
 
-1. **Clone the repository:**
-  
-  ```bash
-  git clone [https://github.com/your-lab/tactile-characterization-suite.git](https://github.com/your-lab/tactile-characterization-suite.git)
-  cd tactile-characterization-suite
-  ```
-  
-2. **Create a virtual environment (Recommended):**
-  
-  ```bash
-  python -m venv venv
-  source venv/bin/activate  # On Windows: venv\Scripts\activate
-  ```
-  
-3. **Install dependencies:**
-  
-  ```bash
-  pip install -r requirements.txt
-  ```
-  
+```bash
+python main.py
+```
 
-## 🚀 Quick Start (Simulation Mode)
+## Hardware configuration
 
-You can run the software immediately without connecting any hardware. The suite comes with `MockDrivers` that simulate a sensor and motor response.
+`config/hardware.json` supports three modes:
 
-1. Open `config_hardware.py`.
-  
-2. Ensure the "Mock" drivers are selected:
-  
-  ```python
-  # config_hardware.py
-  from drivers.mock_drivers import MockMotionStage, MockTactileSensor, MockLoadCell
-  
-  MOTOR_DRIVER = MockMotionStage
-  SENSOR_DRIVER = MockTactileSensor
-  LOAD_CELL_DRIVER = MockLoadCell
-  ```
-  
-3. Run the application:
-  
-  ```bash
-  python main.py
-  ```
-  
+- `"sim"`: use mock drivers
+- `"auto"`: auto-detect available drivers
+- `"manual"`: select driver classes explicitly
 
-## ⚙️ Configuring Your Hardware
+The GUI includes a Hardware panel to edit mode, driver selection, and sensor port/baud.
+Saved changes apply on the next launch.
 
-To use your own lab equipment, you do not need to change the core code. You only need to edit the `drivers/` folder.
+### Auto-detect behavior
 
-### Step 1: Create a Driver
+Auto-detect scans `drivers/` for classes that implement the interfaces and provide a `probe` method. Drivers can define:
 
-Create a new file in `drivers/` (e.g., `my_motor.py`) and implement the standard interface:
+- `PROBE_PRIORITY`: higher values are preferred when multiple drivers match
+- `@classmethod probe(config) -> bool`: returns True if hardware is available
 
-````
+### Manual driver selection
+
+In manual mode, edit `config/hardware.json` to choose the drivers and configure their parameters.
+
+### Writing a driver
+
+Use `drivers/_template.py` as a starting point, or create a new file under `drivers/`
+and implement the appropriate interface:
+
 ```python
 from interfaces.motion_stage import IMotionStage
 
-class MyCustomMotor(IMotionStage):
- def connect(self):
- # Your hardware connection code
- passdef move_to_absolute(self, z_mm, velocity):
-    # Your hardware move code
-    pass
-````
 
-### Step 2: Register in Config
+class MyStage(IMotionStage):
+    def connect(self):
+        pass
 
-Edit `config_hardware.py` to point to your new class:
+    def disconnect(self):
+        pass
 
-Python
+    def move_to_absolute(self, z_mm, velocity):
+        pass
 
-```
-from drivers.my_motor import MyCustomMotor
+    def move_relative(self, dist_mm, velocity):
+        pass
 
-MOTOR_DRIVER = MyCustomMotor
-MOTOR_PARAMS = {"port": "COM3", "baud": 9600}
+    def get_position(self):
+        return 0.0
 ```
 
-## 📊 Output Data
+If you want the driver to work with auto-detect, also add `PROBE_PRIORITY` and a `probe` method.
+See `drivers/README.md` for the template and checklist.
 
-Data is saved automatically to an SQLite database (experiment_data.db).
+## Data output
 
-The schema is dynamic based on your sensor, but generally follows:
+Logs are written under `data/` with a timestamped filename. Both CSV and SQLite formats are supported.
 
-| **Timestamp** | **Pos_Z (mm)** | **Force_Z (N)** | **Sensor_Ch1** | **Sensor_Ch2** | **...** |
-| --- | --- | --- | --- | --- | --- |
-| 0.015 | 5.001 | 0.002 | 1204 | 503 | ... |
+## Architecture
 
-## 🏗️ Architecture
+- `gui/`: PySide6 user interface and plots
+- `core/`: coordinator, timing, async wrappers, and logging
+- `interfaces/`: abstract base classes
+- `drivers/`: hardware-specific implementations
 
-The software follows a **Model-View-Controller (MVC)** pattern to ensure safety and scalability:
+## Contributing
 
-- **GUI (`/gui`)**: Handles user input and plotting. It is "dumb" and knows nothing about hardware.
-  
-- **Coordinator (`/core`)**: The "Brain." It executes the State Machine (Idle -> Find Surface -> Indent -> Hold -> Retract). It handles safety checks and signals.
-  
-- **AsyncWrapper (`/core`)**: Runs sensor drivers in a separate process to prevent UI freezing and buffer overflows.
-  
+New drivers are welcome. Please include a `probe` method if the driver should be auto-detected.
 
-## 🤝 Contributing
-
-We welcome contributions! If you write a driver for common hardware (e.g., specific Insties/SmarAct stages), please submit a Pull Request.
-
-## 📄 Citation
-
+## Citation
 If you use this suite in your research, please cite:
 
-> Lo Preti, M., et al. "Enabling Reproducible Soft Robotics: A Two-Stage Pipeline for the Characterization of Tactile Sensors." (2026).
+Lo Preti, M., et al. "Enabling Reproducible Soft Robotics: A Two-Stage Pipeline for the Characterization of Tactile
+Sensors." (2026).

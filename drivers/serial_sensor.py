@@ -1,7 +1,7 @@
-import sys
 import os
-import time
 import statistics
+import sys
+import time
 from typing import Optional
 
 # Path Setup
@@ -10,7 +10,7 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from Interfaces.tactile_sensor import ITactileSensor
+from interfaces.tactile_sensor import ITactileSensor
 
 try:
     import serial
@@ -20,12 +20,66 @@ except ImportError:
 
 
 class SerialMagneticSensor(ITactileSensor):
-    def __init__(self, port="COM4", baud=12800):
+    PROBE_PRIORITY = 60
+
+    def __init__(self, port="COM4", baud=115200):
         self.port = port
         self.baud = baud
         self.ser = None
         self.num_channels = None  # Will be detected at startup
         self.column_names = []
+        self.connected = False
+
+    @classmethod
+    def probe(cls, config=None):
+        if not serial:
+            return False
+        try:
+            from serial.tools import list_ports
+            ports = [p.device for p in list_ports.comports()]
+            if not ports:
+                return False
+            config = config or {}
+            target = config.get("port")
+            if target:
+                return target in ports
+            return True
+        except Exception:
+            return False
+
+    @classmethod
+    def probe_port(cls, port, config=None):
+        if not serial:
+            return False
+        config = config or {}
+        baud = config.get("baud", 115200)
+        ser = None
+        try:
+            ser = serial.Serial(port, baud, timeout=0.2, write_timeout=0.2)
+            time.sleep(0.2)
+            ser.reset_input_buffer()
+            for _ in range(5):
+                line = ser.readline()
+                if not line:
+                    continue
+                text = line.decode("utf-8", errors="ignore").strip()
+                if not text:
+                    continue
+                parts = text.split(',')
+                try:
+                    [float(p) for p in parts]
+                except ValueError:
+                    continue
+                return True
+        except (OSError, ValueError):
+            return False
+        finally:
+            if ser and ser.is_open:
+                try:
+                    ser.close()
+                except (OSError, ValueError):
+                    pass
+        return False
 
     def connect(self):
         if not serial:
@@ -36,12 +90,14 @@ class SerialMagneticSensor(ITactileSensor):
             self.ser = serial.Serial(self.port, self.baud, timeout=1.0)
             time.sleep(2.0)  # Wait for MCU reset
             self.ser.reset_input_buffer()
+            self.connected = True
 
             # --- AUTO-DETECT CONFIGURATION ---
             if self.num_channels is None:
                 self._detect_channel_count()
 
         except (OSError, ValueError) as conn_err:
+            self.connected = False
             raise ConnectionError(f"Serial Open Error: {conn_err}")
 
     def disconnect(self):
@@ -50,6 +106,7 @@ class SerialMagneticSensor(ITactileSensor):
                 self.ser.close()
             except (OSError, ValueError):
                 pass
+        self.connected = False
 
     def _detect_channel_count(self):
         """

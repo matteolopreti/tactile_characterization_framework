@@ -1,6 +1,7 @@
-import sys
 import os
+import sys
 import time
+
 import numpy as np
 
 # Path Setup
@@ -9,7 +10,7 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from Interfaces.load_cell import ILoadCell
+from interfaces.load_cell import ILoadCell
 
 # --- CONDITIONAL IMPORTS ---
 # 1. NIDAQMX
@@ -54,15 +55,18 @@ except ImportError:
 
 
 class NIDAQLoadCell(ILoadCell):
+    PROBE_PRIORITY = 70
+
     def __init__(self, channel_base="Dev1/ai", cal_file="FT58072.cal"):
         self.channel_base = channel_base
         self.task = None
         self.bias = np.zeros(6)
+        self.connected = False
 
         # Locate Calibration File
         self.cal_path = os.path.join(parent_dir, "config", cal_file)
 
-        # Initialize FT Sensor Object if library exists
+        # Initialize FT Sensor Object if a library exists
         self.ft_sensor = None
         if ATI_AVAILABLE and os.path.exists(self.cal_path):
             try:
@@ -71,6 +75,16 @@ class NIDAQLoadCell(ILoadCell):
                 print(f"[DAQ] Loaded Calibration: {self.cal_path}")
             except (RuntimeError, ValueError) as e:
                 print(f"[DAQ] Failed to load calibration: {e}")
+
+    @classmethod
+    def probe(cls, config=None):
+        if not DAQ_AVAILABLE:
+            return False
+        try:
+            system = nidaqmx.system.System.local()
+            return len(system.devices) > 0
+        except Exception:
+            return False
 
     def connect(self):
         if not DAQ_AVAILABLE:
@@ -96,12 +110,14 @@ class NIDAQLoadCell(ILoadCell):
             )
 
             self.task.start()
+            self.connected = True
             print("[DAQ] Task Started (6 Channels).")
 
         except (DaqError, OSError, ValueError) as conn_err:
             if self.task:
                 self.task.close()
                 self.task = None
+            self.connected = False
             raise ConnectionError(f"DAQ Open Error: {conn_err}")
 
     def disconnect(self):
@@ -113,6 +129,7 @@ class NIDAQLoadCell(ILoadCell):
                 pass
             finally:
                 self.task = None
+                self.connected = False
 
     def zero_bias(self, samples=200):
         if not self.task: return
@@ -148,7 +165,7 @@ class NIDAQLoadCell(ILoadCell):
                 # Take the LAST sample (-1) from each channel
                 voltages = [ch_data[-1] for ch_data in all_data]
             else:
-                # Fallback: Blocking read of 1 sample if buffer was empty
+                # Fallback: Blocking read of 1 sample if the buffer was empty
                 temp = self.task.read(number_of_samples_per_channel=1)
                 # flatten if necessary
                 if isinstance(temp[0], list):

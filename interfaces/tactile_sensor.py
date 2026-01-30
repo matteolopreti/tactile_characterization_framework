@@ -27,7 +27,7 @@ class ITactileSensor(ABC):
 
         Returns:
             list: A list of floats (e.g. [1.2, 0.5, 3.3]).
-            Return None if read fails or times out.
+            Return None if a read fails or times out.
         """
         pass
 

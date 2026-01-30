@@ -1,8 +1,8 @@
-import sys
-import os
-import time
 import math
+import os
 import random
+import sys
+import time
 from typing import Optional
 
 # Path Setup
@@ -11,20 +11,21 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from Interfaces.motion_stage import IMotionStage
-from Interfaces.tactile_sensor import ITactileSensor
-from Interfaces.load_cell import ILoadCell
+from interfaces.motion_stage import IMotionStage
+from interfaces.tactile_sensor import ITactileSensor
+from interfaces.load_cell import ILoadCell
 
 
 class MockMotionStage(IMotionStage):
-    # noinspection PyUnusedLocal
+    PROBE_PRIORITY = -100
+
     def __init__(self, ip="127.0.0.1", port=9999):
-        """
-        Mock implementation of Motion Stage.
-        Args ip/port are accepted for compatibility but ignored.
-        """
         self.z_pos = 0.0
         self.connected = False
+
+    @classmethod
+    def probe(cls, config=None):
+        return True
 
     def connect(self):
         print("[MockMotion] Connecting...")
@@ -40,15 +41,10 @@ class MockMotionStage(IMotionStage):
         if not self.connected:
             raise ConnectionError("Mock Motion not connected")
 
-        # Simulate physical travel time
         dist = abs(self.z_pos - z_mm)
         if velocity <= 0: velocity = 1.0
         duration = dist / velocity
-
-        # Speed up simulation 2x so testing isn't too boring
-        sim_duration = duration * 0.5
-        time.sleep(sim_duration)
-
+        time.sleep(duration)
         self.z_pos = z_mm
 
     def move_relative(self, dist_mm: float, velocity: float):
@@ -60,13 +56,15 @@ class MockMotionStage(IMotionStage):
 
 
 class MockTactileSensor(ITactileSensor):
-    # noinspection PyUnusedLocal
+    PROBE_PRIORITY = -100
+
     def __init__(self, port="MockPort", baud=0):
-        """
-        Mock Sensor. Args port/baud are ignored.
-        """
         self.connected = False
         self.start_time = 0.0
+
+    @classmethod
+    def probe(cls, config=None):
+        return True
 
     def connect(self):
         print("[MockSensor] Connecting...")
@@ -83,7 +81,6 @@ class MockTactileSensor(ITactileSensor):
         if not self.connected:
             return None
 
-        # Generate dummy sine waves
         t = time.time() - self.start_time
         v1 = math.sin(t * 2.0)
         v2 = math.cos(t * 2.5) * 0.5
@@ -97,13 +94,15 @@ class MockTactileSensor(ITactileSensor):
 
 
 class MockLoadCell(ILoadCell):
-    # noinspection PyUnusedLocal
+    PROBE_PRIORITY = -100
+
     def __init__(self, channel="MockChannel"):
-        """
-        Mock Load Cell. Arg channel is ignored.
-        """
         self.connected = False
         self.sim_force = 0.0
+
+    @classmethod
+    def probe(cls, config=None):
+        return True
 
     def connect(self):
         print("[MockLoadCell] Connecting...")
@@ -117,5 +116,4 @@ class MockLoadCell(ILoadCell):
     def read_force(self) -> float:
         if not self.connected:
             return 0.0
-        # Return small random noise around 0
         return self.sim_force + random.uniform(-0.02, 0.02)

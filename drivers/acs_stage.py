@@ -1,13 +1,13 @@
-import sys
 import os
+import sys
 
-# Setup path to find interfaces
+# Set up the path to find interfaces
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from Interfaces.motion_stage import IMotionStage
+from interfaces.motion_stage import IMotionStage
 
 # --- CONDITIONAL IMPORT & MOCKING ---
 SP_AVAILABLE = False
@@ -60,13 +60,30 @@ except ImportError:
 
 
 class ACSMotionStage(IMotionStage):
+    PROBE_PRIORITY = 80
+
     def __init__(self, ip="10.0.0.100", port=701):
         self.ip = ip
         self.port = port
         self.hc = None
+        self.connected = False
 
         # Safe access to constants (Works with Real OR Mock lib)
         self.axis_id = sp.Axis.ACSC_AXIS_0
+
+    @classmethod
+    def probe(cls, config=None):
+        if not SP_AVAILABLE:
+            return False
+        config = config or {}
+        ip = config.get("ip", "10.0.0.100")
+        port = config.get("port", 701)
+        try:
+            hc = sp.OpenCommEthernetTCP(ip, port)
+            sp.CloseComm(hc)
+            return True
+        except (RuntimeError, OSError):
+            return False
 
     def connect(self):
         try:
@@ -76,8 +93,10 @@ class ACSMotionStage(IMotionStage):
                 print("[ACS-SIM] Connecting to Mock Controller...")
 
             self.hc = sp.OpenCommEthernetTCP(self.ip, self.port)
+            self.connected = True
             print("[ACS] Connected.")
         except (RuntimeError, OSError) as e:
+            self.connected = False
             raise ConnectionError(f"Failed to connect to ACS: {e}")
 
     def disconnect(self):
@@ -88,6 +107,7 @@ class ACSMotionStage(IMotionStage):
                 pass
             finally:
                 self.hc = None
+                self.connected = False
 
     def move_to_absolute(self, z_mm: float, velocity: float):
         if self.hc is None:
