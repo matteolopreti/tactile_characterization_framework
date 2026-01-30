@@ -1,91 +1,105 @@
 # Tactile Sensor Characterization Framework
 
-A modular, hardware-agnostic Python framework for repeatable tactile sensor characterization with a motion stage, load
-cell, and sensor under test.
+A GUI-driven Python framework for repeatable tactile sensor characterization with a motion stage, load cell, and
+sensor under test. It supports simulation mode, hardware auto-detect, and structured logging for experiments.
 
-## Features
+## What this project does
 
-- Abstract interfaces for motion stage, load cell, and tactile sensor drivers
-- Real-time plotting with PySide6 and pyqtgraph
-- Background sampling threads to keep the UI responsive
-- Timestamped CSV and SQLite logging
+- Runs a load/hold/unload protocol with an initial pre-conditioning cycle.
+- Finds the contact surface automatically by force threshold or manually by user trigger.
+- Streams and plots force and sensor channels in real time.
+- Logs timestamped CSV and SQLite files for analysis.
 
-## Quick start (simulation)
+## Install
 
-1. Open the GUI and set Hardware Mode to `sim`, or edit `config/hardware.json` and set `"mode": "sim"`.
-2. Run:
+```bash
+python -m venv .venv
+.\.venv\Scripts\activate  # Windows
+pip install -r requirements.txt
+```
+
+## Run (simulation)
+
+1. In the GUI, set Hardware Mode to `sim`, or edit `config/hardware.json` and set `"mode": "sim"`.
+2. Start the app:
 
 ```bash
 python main.py
 ```
 
-## Hardware configuration
+## Run with hardware
 
-`config/hardware.json` supports three modes:
+1. Open the Hardware panel and choose `auto` or `manual` mode.
+2. In manual mode, select driver classes and set sensor port and baud. Click **Save Hardware Config**.
+3. Click **Apply and Check Connections** to verify devices.
+4. Configure experiment parameters (depth, speed, hold time, contact force, cycles, logging rate).
+5. Click **Start Test**. During surface finding you can click **Set Surface Now** to manually set the contact point.
 
-- `"sim"`: use mock drivers
-- `"auto"`: auto-detect available drivers
-- `"manual"`: select driver classes explicitly
+## Configuration
 
-The GUI includes a Hardware panel to edit mode, driver selection, and sensor port/baud.
-Saved changes apply on the next launch.
+Hardware defaults live in `config/hardware.json`:
 
-### Auto-detect behavior
-
-Auto-detect scans `drivers/` for classes that implement the interfaces and provide a `probe` method. Drivers can define:
-
-- `PROBE_PRIORITY`: higher values are preferred when multiple drivers match
-- `@classmethod probe(config) -> bool`: returns True if hardware is available
-
-### Manual driver selection
-
-In manual mode, edit `config/hardware.json` to choose the drivers and configure their parameters.
-
-### Writing a driver
-
-Use `drivers/_template.py` as a starting point, or create a new file under `drivers/`
-and implement the appropriate interface:
-
-```python
-from interfaces.motion_stage import IMotionStage
-
-
-class MyStage(IMotionStage):
-    def connect(self):
-        pass
-
-    def disconnect(self):
-        pass
-
-    def move_to_absolute(self, z_mm, velocity):
-        pass
-
-    def move_relative(self, dist_mm, velocity):
-        pass
-
-    def get_position(self):
-        return 0.0
+```json
+{
+  "mode": "manual",
+  "stage": {
+    "driver": "drivers.acs_stage.ACSMotionStage",
+    "config": { "ip": "10.0.0.100", "port": 701 }
+  },
+  "load_cell": {
+    "driver": "drivers.ati_daq.NIDAQLoadCell",
+    "config": { "channel_base": "Dev1/ai", "cal_file": "FT58072.cal" }
+  },
+  "sensor": {
+    "driver": "drivers.serial_sensor.SerialMagneticSensor",
+    "config": { "port": "COM1", "baud": 115200 }
+  }
+}
 ```
 
-If you want the driver to work with auto-detect, also add `PROBE_PRIORITY` and a `probe` method.
-See `drivers/README.md` for the template and checklist.
+Modes:
+
+- `sim`: mock drivers only
+- `auto`: pick drivers via `probe()` and `PROBE_PRIORITY`
+- `manual`: use explicit driver class paths
+
+The GUI Hardware panel can edit mode, driver selection, and serial settings. Saved changes apply on the next launch.
+
+## Drivers and dependencies
+
+Built-in drivers:
+
+- `drivers/acs_stage.py`: ACS stage (requires `SPiiPlusPython`, proprietary)
+- `drivers/ati_daq.py`: NI DAQ + ATI load cell (requires `nidaqmx`, optional `atiiaftt` for calibration)
+- `drivers/serial_sensor.py`: serial sensor (requires `pyserial`)
+- `drivers/mock_drivers.py`: simulation drivers (no hardware)
+
+If a vendor library is missing, that driver will not connect (or will run in simulation where available).
 
 ## Data output
 
-Logs are written under `data/` with a timestamped filename. Both CSV and SQLite formats are supported.
+Logs are written to `data/` with timestamped filenames:
 
-## Architecture
+- `experiment_YYYY-MM-DD_HH-MM-SS.csv`
+- `experiment_YYYY-MM-DD_HH-MM-SS.db`
 
-- `gui/`: PySide6 user interface and plots
-- `core/`: coordinator, timing, async wrappers, and logging
+Columns include `Time`, `Pos`, `Force_Net`, `Phase`, plus sensor channels detected at runtime.
+
+## Project layout
+
+- `gui/`: PySide6 interface and plots
+- `core/`: experiment coordinator, timing, logging
 - `interfaces/`: abstract base classes
-- `drivers/`: hardware-specific implementations
+- `drivers/`: hardware implementations and templates
+- `config/`: hardware defaults and calibration files
 
 ## Contributing
 
-New drivers are welcome. Please include a `probe` method if the driver should be auto-detected.
+Use `drivers/_template.py` to add a new driver and implement the appropriate interface. Include `probe()` and
+`PROBE_PRIORITY` if you want auto-detect. See `drivers/README.md` for the checklist.
 
 ## Citation
+
 If you use this suite in your research, please cite:
 
 Lo Preti, M., et al. "Enabling Reproducible Soft Robotics: A Two-Stage Pipeline for the Characterization of Tactile
