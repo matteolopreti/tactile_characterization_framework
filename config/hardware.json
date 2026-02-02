@@ -1,0 +1,24 @@
+{
+  "mode": "manual",
+  "stage": {
+    "driver": "drivers.acs_stage.ACSMotionStage",
+    "config": {
+      "ip": "10.0.0.100",
+      "port": 701
+    }
+  },
+  "load_cell": {
+    "driver": "drivers.ati_daq.NIDAQLoadCell",
+    "config": {
+      "channel_base": "Dev1/ai",
+      "cal_file": "FT58072.cal"
+    }
+  },
+  "sensor": {
+    "driver": "drivers.serial_sensor.SerialMagneticSensor",
+    "config": {
+      "port": "COM1",
+      "baud": 115200
+    }
+  }
+}
