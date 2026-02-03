@@ -62,6 +62,9 @@ class ExperimentCoordinator(QObject):
             self.force_offset = self.load_cell.read_force()
             info['load_cell'] = f"OK (Offset: {self.force_offset:.2f}N)"
             if not self.sensor_driver.connected: self.sensor_driver.connect()
+            else:
+                self.sensor_driver.disconnect()
+                self.sensor_driver.connect()
             cols = self.sensor_driver.get_column_names()
             info['sensor'] = f"OK ({len(cols)} Ch)"
             self.sig_hw_info.emit(info)
@@ -110,11 +113,8 @@ class ExperimentCoordinator(QObject):
     def stop(self):
         self.stop_requested = True
         self._stop_evt.set()
-        self.motor.disconnect()
-        self.load_cell.disconnect()
         self.sig_status.emit("STOP REQUESTED")
-        self._stop_evt.wait(4.0)
-        QCoreApplication.exit(00)
+        return True
 
     def _run_protocol(self, params):
         db = None
@@ -218,7 +218,7 @@ class ExperimentCoordinator(QObject):
             self.running = False
             if self.stop_requested:
                 try:
-                    self.motor.move_relative(-2.0, 5.0)
+                    self.motor.move_relative(5, 5.0)
                 except:
                     pass
 
@@ -340,7 +340,7 @@ class ExperimentCoordinator(QObject):
         step = 0.1
         trav = 0.0
         last_emit = time.perf_counter()
-        self.motor.move_to_absolute(20.0, velocity=5.0)
+        self.motor.move_relative(5.0, velocity=2.0)
         self._stop_evt.wait(4.0)
         while trav < 25.0:
             if self.stop_requested or self._stop_evt.is_set():
@@ -362,7 +362,7 @@ class ExperimentCoordinator(QObject):
             trav += step
             now = time.perf_counter()
             if now - last_emit >= 0.25:
-                self.sig_status.emit(f"FINDING SURFACE... {trav:.1f} mm")
+                self.sig_status.emit(f"FINDING {trav:.1f} mm{f:.3f} N")
                 last_emit = now
             self._stop_evt.wait(0.02)
         raise RuntimeError("Surface not found")

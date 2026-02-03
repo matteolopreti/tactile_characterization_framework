@@ -753,11 +753,18 @@ class TactileTestUI(QMainWindow):
             self.lbl_surface.setText("Manual trigger")
 
     def on_stop(self):
-        self.coord.stop()
+        is_complete = self.coord.stop()
         self.lbl_phase.setText("STOPPING...")
         self.progress.setRange(0, 0)
         self._flash_button(self.btn_stop, "warn")
-
+        if is_complete:
+            try:
+                self.lbl_phase.setText("STOPPED")
+                self.progress.setRange(0, 100)
+                self.progress.setValue(100)
+                self._show_message("Stopped", "Please restart the program.", QMessageBox.Information)
+            except Exception:
+                pass
     @Slot(dict)
     def update_report(self, info):
         self.txt_report.setText(
