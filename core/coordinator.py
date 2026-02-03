@@ -2,7 +2,7 @@ import os
 import threading
 import time
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Signal, QCoreApplication
 
 from .async_wrapper import AsyncSensorRunner, AsyncValuePoller
 from .data_logger import DataLogger
@@ -110,6 +110,11 @@ class ExperimentCoordinator(QObject):
     def stop(self):
         self.stop_requested = True
         self._stop_evt.set()
+        self.motor.disconnect()
+        self.load_cell.disconnect()
+        self.sig_status.emit("STOP REQUESTED")
+        self._stop_evt.wait(4.0)
+        QCoreApplication.exit(00)
 
     def _run_protocol(self, params):
         db = None
@@ -166,6 +171,7 @@ class ExperimentCoordinator(QObject):
             hold_t = params['hold_time']
 
             total_cycles = params['cycles'] + 1
+            dur = depth/speed
             cycle_dur = (2 * depth / speed) + hold_t
             total_dur = total_cycles * cycle_dur
             start_t = time.perf_counter()
@@ -177,10 +183,10 @@ class ExperimentCoordinator(QObject):
                 prefix = "MULLIN" if is_mullin else f"CYCLE_{c}"
 
                 # 1. LOAD (Parallel Move)
-                target = surface_z + depth
+                target = surface_z - depth
                 self._run_phase_parallel(
                     target, speed, f"{prefix}_LOADING",
-                    db, start_t, cols, c, total_cycles, total_dur, rate_hz
+                    db, start_t, cols, c, total_cycles, total_dur, rate_hz, dur
                 )
                 if self.stop_requested: break
 
@@ -194,11 +200,11 @@ class ExperimentCoordinator(QObject):
                 # 3. UNLOAD (Parallel Move)
                 self._run_phase_parallel(
                     surface_z, speed, f"{prefix}_UNLOADING",
-                    db, start_t, cols, c, total_cycles, total_dur, rate_hz
+                    db, start_t, cols, c, total_cycles, total_dur, rate_hz, dur
                 )
 
             self.sig_finished.emit()
-
+            self.motor.move_to_absolute(surface_z + 5.0, velocity=5.0)
         except Exception as e:
             self.sig_error.emit(f"Error: {e}")
         finally:
@@ -216,26 +222,64 @@ class ExperimentCoordinator(QObject):
                 except:
                     pass
 
-    def _run_phase_parallel(self, target_z, speed, phase, db, start_t, cols, c, tot_c, tot_dur, rate_hz):
-        """Spawns motion thread, runs logging loop in the main thread."""
+    def _run_phase_parallel(
+            self,
+            target_z,
+            speed,
+            phase,
+            db,
+            start_t,
+            cols,
+            c,
+            tot_c,
+            tot_dur,
+            rate_hz,
+            duration
+    ):
         done_evt = threading.Event()
 
         def motion_worker():
+            """
+            持续运动线程（阻塞在这里是安全的）
+            """
             try:
-                self.motor.move_to_absolute(target_z, velocity=speed)
-            except:
+                self.motor.move_to_absolute(
+                    target_z,
+                    velocity=speed
+                )
+            except Exception:
                 pass
             finally:
                 done_evt.set()
 
-        t = threading.Thread(target=motion_worker, daemon=True)
+        # 启动运动线程
+        t = threading.Thread(
+            target=motion_worker,
+            daemon=True
+        )
         t.start()
 
+        # 采样线程（主线程）
         rate = RateLimiter(rate_hz)
         rate.reset()
+        end_time = time.perf_counter() + duration
 
-        # Logging Loop
-        self._emit_loop(lambda: done_evt.is_set(), rate, db, start_t, phase, cols, c, tot_c, tot_dur)
+        while (
+                time.perf_counter() < end_time
+                and not self.stop_requested
+                and not self._stop_evt.is_set()
+        ):
+            self._emit(
+                db,
+                start_t,
+                phase,
+                cols,
+                c,
+                tot_c,
+                tot_dur
+            )
+
+            rate.wait(self._stop_evt)
 
         t.join()
 
@@ -296,6 +340,8 @@ class ExperimentCoordinator(QObject):
         step = 0.1
         trav = 0.0
         last_emit = time.perf_counter()
+        self.motor.move_to_absolute(20.0, velocity=5.0)
+        self._stop_evt.wait(4.0)
         while trav < 25.0:
             if self.stop_requested or self._stop_evt.is_set():
                 return None
@@ -311,7 +357,8 @@ class ExperimentCoordinator(QObject):
                 self.sig_status.emit("SURFACE DETECTED")
                 return self._get_position()
 
-            self.motor.move_relative(step, velocity=1.0)
+            self.motor.move_relative(-step, velocity=1.0)
+            self._stop_evt.wait(0.2)
             trav += step
             now = time.perf_counter()
             if now - last_emit >= 0.25:

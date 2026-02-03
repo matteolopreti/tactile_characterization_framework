@@ -17,7 +17,7 @@
   "sensor": {
     "driver": "drivers.serial_sensor.SerialMagneticSensor",
     "config": {
-      "port": "COM1",
+      "port": "COM4",
       "baud": 115200
     }
   }

@@ -102,6 +102,11 @@ class ACSMotionStage(IMotionStage):
     def disconnect(self):
         if self.hc is not None:
             try:
+                sp.DisableAll(
+                    self.hc,
+                    sp.SYNCHRONOUS,
+                    True
+                )
                 sp.CloseComm(self.hc)
             except (RuntimeError, OSError):
                 pass
