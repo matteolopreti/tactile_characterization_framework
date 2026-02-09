@@ -69,7 +69,9 @@ class ACSMotionStage(IMotionStage):
         self.connected = False
 
         # Safe access to constants (Works with Real OR Mock lib)
-        self.axis_id = sp.Axis.ACSC_AXIS_0
+        self.axis_id_z = sp.Axis.ACSC_AXIS_0
+        self.axis_id_y = sp.Axis.ACSC_AXIS_1
+        self.axis_id_x = sp.Axis.ACSC_AXIS_2
 
     @classmethod
     def probe(cls, config=None):
@@ -120,10 +122,10 @@ class ACSMotionStage(IMotionStage):
 
         try:
             # 1. Set Velocity
-            sp.SetVelocityImm(self.hc, self.axis_id, velocity)
+            sp.SetVelocityImm(self.hc, self.axis_id_z, velocity)
 
             # 2. Move (Blocking)
-            sp.ToPoint(self.hc, 0, self.axis_id, z_mm, sp.SYNCHRONOUS)
+            sp.ToPoint(self.hc, 0, self.axis_id_z, z_mm, sp.SYNCHRONOUS)
 
         except (RuntimeError, OSError) as e:
             raise RuntimeError(f"ACS Move Error: {e}")
@@ -133,12 +135,12 @@ class ACSMotionStage(IMotionStage):
             raise ConnectionError("ACS Controller not connected.")
 
         try:
-            sp.SetVelocityImm(self.hc, self.axis_id, velocity)
+            sp.SetVelocityImm(self.hc, self.axis_id_z, velocity)
 
             current = self.get_position()
             target = current + dist_mm
 
-            sp.ToPoint(self.hc, 0, self.axis_id, target, sp.SYNCHRONOUS)
+            sp.ToPoint(self.hc, 0, self.axis_id_z, target, sp.SYNCHRONOUS)
 
         except (RuntimeError, OSError) as e:
             raise RuntimeError(f"ACS Relative Move Error: {e}")
@@ -148,7 +150,7 @@ class ACSMotionStage(IMotionStage):
             raise ConnectionError("ACS Controller not connected.")
 
         try:
-            pos = sp.GetFPosition(self.hc, self.axis_id)
+            pos = sp.GetFPosition(self.hc, self.axis_id_z)
             return float(pos)
         except (RuntimeError, OSError, ValueError) as e:
             raise RuntimeError(f"ACS Position Read Error: {e}")

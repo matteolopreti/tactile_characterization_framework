@@ -2,7 +2,7 @@ import os
 import threading
 import time
 
-from PySide6.QtCore import QObject, Signal, QCoreApplication
+from PySide6.QtCore import QObject, Signal
 
 from .async_wrapper import AsyncSensorRunner, AsyncValuePoller
 from .data_logger import DataLogger
@@ -62,7 +62,7 @@ class ExperimentCoordinator(QObject):
             self.force_offset = self.load_cell.read_force()
             info['load_cell'] = f"OK (Offset: {self.force_offset:.2f}N)"
             if not self.sensor_driver.connected: self.sensor_driver.connect()
-            else:
+            else: # reconnect to refresh
                 self.sensor_driver.disconnect()
                 self.sensor_driver.connect()
             cols = self.sensor_driver.get_column_names()
@@ -216,9 +216,9 @@ class ExperimentCoordinator(QObject):
                 self._perf.report()
                 self._perf = None
             self.running = False
-            if self.stop_requested:
+            if self.stop_requested:# emergency stop,try to back off a bit
                 try:
-                    self.motor.move_relative(5, 5.0)
+                    self.motor.move_relative(5, 5.0)# move up a bit on stop,upward is positive
                 except:
                     pass
 
@@ -240,7 +240,7 @@ class ExperimentCoordinator(QObject):
 
         def motion_worker():
             """
-            持续运动线程（阻塞在这里是安全的）
+            carries out the motor movement in a separate thread
             """
             try:
                 self.motor.move_to_absolute(
@@ -252,14 +252,14 @@ class ExperimentCoordinator(QObject):
             finally:
                 done_evt.set()
 
-        # 启动运动线程
+
         t = threading.Thread(
             target=motion_worker,
             daemon=True
         )
         t.start()
 
-        # 采样线程（主线程）
+        # main thread: emit while motion not done
         rate = RateLimiter(rate_hz)
         rate.reset()
         end_time = time.perf_counter() + duration

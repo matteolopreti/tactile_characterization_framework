@@ -192,6 +192,19 @@ class TactileTestUI(QMainWindow):
         auto_layout.addWidget(self.lbl_auto_status, 3, 1, 1, 2)
         l_hw.addWidget(self.auto_panel)
 
+        self.test_type_panel = QGroupBox("Test Selection")
+        test_type_layout = QGridLayout(self.test_type_panel)
+        test_type_layout.setVerticalSpacing(6)
+        test_type_layout.setColumnStretch(1, 1)
+        self.cmb_test_type = QComboBox()
+        self.cmb_test_type.addItem("Uniaxial Test", "Uni")
+        self.cmb_test_type.addItem("Triaxial Test", "Tri")
+        self._cap_combo_width(self.cmb_test_type)
+        self.cmb_test_type.currentIndexChanged.connect(self._on_test_type_changed)
+        test_type_layout.addWidget(QLabel("Test Type:"), 0, 0)
+        test_type_layout.addWidget(self.cmb_test_type, 0, 1)
+        l_hw.addWidget(self.test_type_panel)
+
         self.manual_panel = QGroupBox("Manual Selection")
         manual_layout = QGridLayout(self.manual_panel)
         manual_layout.setVerticalSpacing(6)
@@ -746,7 +759,11 @@ class TactileTestUI(QMainWindow):
                 'log_csv': self.chk_csv.isChecked(),
                 'log_sqlite': self.chk_sqlite.isChecked()
             }
-            self.coord.start_experiment(params)
+            test_type = self._on_test_type_changed()
+            if test_type == "Uni":
+                self.coord.start_experiment(params)
+            elif test_type == "Tri":
+                self.coord.start_triaxial_experiment(params) # to be added in backend
         else:
             self.coord.trigger_manual_surface()
             self._flash_button(self.btn_start, "ok")
@@ -1071,3 +1088,7 @@ class TactileTestUI(QMainWindow):
             "- Try Auto Detect or Simulation if hardware is unavailable."
         )
         self._flash_button(self.btn_check, "warn")
+
+    def _on_test_type_changed(self):
+        test_type = self.cmb_test_type.currentData()
+        return test_type
