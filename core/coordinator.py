@@ -240,7 +240,7 @@ class ExperimentCoordinator(QObject):
 
         def motion_worker():
             """
-            持续运动线程（阻塞在这里是安全的）
+            continuously move motor to target position
             """
             try:
                 self.motor.move_to_absolute(
@@ -252,14 +252,14 @@ class ExperimentCoordinator(QObject):
             finally:
                 done_evt.set()
 
-        # 启动运动线程
+        # start motion thread
         t = threading.Thread(
             target=motion_worker,
             daemon=True
         )
         t.start()
 
-        # 采样线程（主线程）
+        # main sampling thread
         rate = RateLimiter(rate_hz)
         rate.reset()
         end_time = time.perf_counter() + duration
