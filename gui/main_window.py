@@ -25,7 +25,12 @@ class TactileTestUI(QMainWindow):
         self.resize(1280, 950)
         self.setWindowState(Qt.WindowMaximized)
 
-        self.time_data, self.force_data, self.sensor_data = [], [], []
+        self.time_data = []
+        # Separate force channels
+        self.force_fx = []
+        self.force_fy = []
+        self.force_fz = []
+        self.sensor_data = []
         self.is_searching = False
         self._buffer_rate_hz = 0.0
         self._max_points = 0
@@ -71,7 +76,7 @@ class TactileTestUI(QMainWindow):
             QLabel { color: #1F2A36; }
             QDoubleSpinBox, QSpinBox { min-height: 34px; padding-left: 8px; border: 1px solid #B0BEC5; border-radius: 6px; background: rgba(255,255,255,230); }
             QDoubleSpinBox::up-button, QSpinBox::up-button { width: 34px; border-left: 1px solid #BDC3C7; background: #D6EAF8; }
-            QDoubleSpinBox::down-button, QSpinBox::down-button { width: 34px; border-left: 1px solid #BDC3C7; background: #FADBD8; }
+            QDoubleSpinBox::down-button, QSpinBox::down-button { width: 34px, border-left: 1px solid #BDC3C7; background: #FADBD8; }
             QComboBox { min-height: 34px; padding-left: 8px; border: 1px solid #B0BEC5; border-radius: 6px; background: rgba(255,255,255,230); color: #1E272E; }
             QComboBox::drop-down { width: 30px; border-left: 1px solid #B0BEC5; background: #D6EAF8; }
             QComboBox QAbstractItemView { background: rgba(255,255,255,245); color: #1E272E; selection-background-color: #CFE3F5; selection-color: #1E272E; }
@@ -123,6 +128,7 @@ class TactileTestUI(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
 
+        #  Scroll Area for sections
         scroll_content = QWidget()
         scroll_content.setObjectName("sidebar")
         sidebar_layout = QVBoxLayout(scroll_content)
@@ -138,6 +144,7 @@ class TactileTestUI(QMainWindow):
         scroll.setFixedWidth(400)
         left_layout.addWidget(scroll, stretch=1)
 
+        #  Footer with controls
         footer = QWidget()
         footer_layout = QVBoxLayout(footer)
         footer_layout.setContentsMargins(10, 0, 10, 10)
@@ -191,19 +198,6 @@ class TactileTestUI(QMainWindow):
         auto_layout.addWidget(self.btn_auto_rescan, 3, 0)
         auto_layout.addWidget(self.lbl_auto_status, 3, 1, 1, 2)
         l_hw.addWidget(self.auto_panel)
-
-        self.test_type_panel = QGroupBox("Test Selection")
-        test_type_layout = QGridLayout(self.test_type_panel)
-        test_type_layout.setVerticalSpacing(6)
-        test_type_layout.setColumnStretch(1, 1)
-        self.cmb_test_type = QComboBox()
-        self.cmb_test_type.addItem("Uniaxial Test", "Uni")
-        self.cmb_test_type.addItem("Triaxial Test", "Tri")
-        self._cap_combo_width(self.cmb_test_type)
-        self.cmb_test_type.currentIndexChanged.connect(self._on_test_type_changed)
-        test_type_layout.addWidget(QLabel("Test Type:"), 0, 0)
-        test_type_layout.addWidget(self.cmb_test_type, 0, 1)
-        l_hw.addWidget(self.test_type_panel)
 
         self.manual_panel = QGroupBox("Manual Selection")
         manual_layout = QGridLayout(self.manual_panel)
@@ -293,6 +287,7 @@ class TactileTestUI(QMainWindow):
         self.spin_speed = self._add_p(l_phys, "Speed (mm/s):", 0.2, 1, 0.01, 5.0)
         self.spin_hold = self._add_p(l_phys, "Hold (s):", 1.0, 2, 0.0, 60.0)
         self.spin_contact = self._add_p(l_phys, "Contact (N):", 0.4, 3, 0.01, 10.0)
+        self.spin_horizontal_range = self._add_p(l_phys, "Horizontal Range(mm):", 5.0, 6, 0.1, 50.0)
 
         # New: Sampling Rate
         self.spin_rate = QSpinBox()
@@ -315,6 +310,7 @@ class TactileTestUI(QMainWindow):
         self.spin_contact.valueChanged.connect(self._update_exp_summary)
         self.spin_rate.valueChanged.connect(self._update_exp_summary)
         self.spin_cycles.valueChanged.connect(self._update_exp_summary)
+        self.spin_horizontal_range.valueChanged.connect(self._update_exp_summary)
         sidebar_layout.addWidget(self.grp_phys)
 
         # 2. LOGGING
@@ -607,6 +603,7 @@ class TactileTestUI(QMainWindow):
             f"Speed {self.spin_speed.value():.2f} mm/s, "
             f"Cycles {self.spin_cycles.value()}, "
             f"Rate {self.spin_rate.value()} Hz"
+            f"Range {self.spin_horizontal_range.value():.2f} mm"
         )
         self.lbl_exp_summary.setText(summary)
 
@@ -647,20 +644,43 @@ class TactileTestUI(QMainWindow):
         if len(self.time_data) <= self._trim_threshold:
             return
         self.time_data = self.time_data[-self._max_points:]
-        self.force_data = self.force_data[-self._max_points:]
+        self.force_fx = self.force_fx[-self._max_points:]
+        self.force_fy = self.force_fy[-self._max_points:]
+        self.force_fz = self.force_fz[-self._max_points:]
         if self.sensor_data:
             self.sensor_data = [c[-self._max_points:] for c in self.sensor_data]
 
     @Slot(dict)
     def ingest_packet(self, d):
         """Called whenever data arrives from the high-speed thread."""
-        self.time_data.append(d['t'])
-        self.force_data.append(d['f'])
+        # Time
+        t_val = d.get('t', 0.0)
+        self.time_data.append(t_val)
+
+        # Forces: accept 'forces' (6-element) first, otherwise 'fz'/'f'
+        forces = d.get('forces')
+        if isinstance(forces, (list, tuple)) and len(forces) >= 3:
+            fx = forces[0]
+            fy = forces[1]
+            fz = forces[2]
+        else:
+            # Fallbacks
+            fz = d.get('f') if 'f' in d else d.get('fz', 0.0)
+            fx = 0.0
+            fy = 0.0
+
+        self.force_fx.append(fx)
+        self.force_fy.append(fy)
+        self.force_fz.append(fz)
+
+        # Sensor channels
+        s_vals = d.get('s') or []
         if not self.sensor_data:
-            self.sensor_data = [[] for _ in d['s']]
-            self.plots.init_sensor_curves(len(d['s']), d.get('s_names'))
-        for i, v in enumerate(d['s']):
-            self.sensor_data[i].append(v)
+            self.sensor_data = [[] for _ in s_vals]
+            self.plots.init_sensor_curves(len(s_vals), d.get('s_names'))
+        for i, v in enumerate(s_vals):
+            if i < len(self.sensor_data):
+                self.sensor_data[i].append(v)
         self._trim_buffers()
 
         # CLEAN PHASE DISPLAY: "CYCLE_1_LOADING" -> "LOADING"
@@ -718,9 +738,10 @@ class TactileTestUI(QMainWindow):
         t_start = max(0, t_end - win)
         idx = np.searchsorted(self.time_data, t_start)
 
+        # Pass force series as [Fx_series, Fy_series, Fz_series]
         self.plots.update_plots(
             self.time_data[idx:],
-            self.force_data[idx:],
+            [self.force_fx[idx:], self.force_fy[idx:], self.force_fz[idx:]],
             [c[idx:] for c in self.sensor_data]
         )
         self.plots.set_x_range(t_start, t_start + win)
@@ -744,7 +765,7 @@ class TactileTestUI(QMainWindow):
             self._set_section_collapsed(self.log_content, self.lbl_log_summary, self.log_toggle, True)
             self._set_section_collapsed(self.view_content, self.lbl_view_summary, self.view_toggle, True)
 
-            self.time_data, self.force_data, self.sensor_data = [], [], []
+            self.time_data, self.force_fx, self.force_fy, self.force_fz, self.sensor_data = [], [], [], [], []
             self.plots.clear()
             self._buffer_rate_hz = self.spin_rate.value()
             self._recalc_buffer_limits()
@@ -756,14 +777,12 @@ class TactileTestUI(QMainWindow):
                 'cycles': self.spin_cycles.value(),
                 'contact_force': self.spin_contact.value(),
                 'sampling_rate': self.spin_rate.value(),  # Pass User Rate
+                'horizontal_range': self.spin_horizontal_range.value(),
                 'log_csv': self.chk_csv.isChecked(),
                 'log_sqlite': self.chk_sqlite.isChecked()
             }
-            test_type = self._on_test_type_changed()
-            if test_type == "Uni":
-                self.coord.start_experiment(params)
-            elif test_type == "Tri":
-                self.coord.start_triaxial_experiment(params) # to be added in backend
+            self.coord.start_experiment(params)
+
         else:
             self.coord.trigger_manual_surface()
             self._flash_button(self.btn_start, "ok")
@@ -1088,7 +1107,3 @@ class TactileTestUI(QMainWindow):
             "- Try Auto Detect or Simulation if hardware is unavailable."
         )
         self._flash_button(self.btn_check, "warn")
-
-    def _on_test_type_changed(self):
-        test_type = self.cmb_test_type.currentData()
-        return test_type

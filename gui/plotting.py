@@ -49,7 +49,20 @@ class DashboardPlots(QWidget):
         self.plot_force.setLabel('bottom', "Time (s)", **self._label_style)
 
         self.plot_force.showGrid(x=True, y=True, alpha=0.3)
-        self.curve_force = self.plot_force.plot(pen=pg.mkPen('#D32F2F', width=2.5))
+        # Force curves for Fx, Fy, Fz
+        self.force_colors = {
+            'Fx': '#1E88E5',
+            'Fy': '#43A047',
+            'Fz': '#D32F2F'
+        }
+        self.curve_fx = self.plot_force.plot(pen=pg.mkPen(self.force_colors['Fx'], width=2), name='Fx')
+        self.curve_fy = self.plot_force.plot(pen=pg.mkPen(self.force_colors['Fy'], width=2), name='Fy')
+        self.curve_fz = self.plot_force.plot(pen=pg.mkPen(self.force_colors['Fz'], width=2.5), name='Fz')
+        # Create legend for force plot
+        try:
+            self.force_legend = self.plot_force.addLegend(offset=(10, 10))
+        except Exception:
+            self.force_legend = None
 
         # --- FIXED FORCE INDICATOR ---
         # Anchor (1,0) means the (x,y) pos refers to the Top-Right of the text bounding box.
@@ -122,14 +135,31 @@ class DashboardPlots(QWidget):
             self.sensor_curves.append(curve)
 
     def update_plots(self, t, f, s_cols):
-        self.curve_force.setData(t, f, skipFiniteCheck=True)
+        # f can be either:
+        # - a single list of scalar Fz values (legacy), or
+        # - a list/tuple of three lists: [Fx_series, Fy_series, Fz_series]
+        if f and isinstance(f, (list, tuple)) and len(f) > 0 and isinstance(f[0], (list, tuple)):
+            # multi-channel forces
+            fx_series = f[0] if len(f) > 0 else []
+            fy_series = f[1] if len(f) > 1 else []
+            fz_series = f[2] if len(f) > 2 else []
+            self.curve_fx.setData(t, fx_series, skipFiniteCheck=True)
+            self.curve_fy.setData(t, fy_series, skipFiniteCheck=True)
+            self.curve_fz.setData(t, fz_series, skipFiniteCheck=True)
+            display_fz = fz_series[-1] if fz_series else (fx_series[-1] if fx_series else 0.0)
+        else:
+            # legacy single-series (Fz)
+            self.curve_fx.setData([], [])
+            self.curve_fy.setData([], [])
+            self.curve_fz.setData(t, f or [], skipFiniteCheck=True)
+            display_fz = (f[-1] if f else 0.0)
         for i, curve in enumerate(self.sensor_curves):
             if i < len(s_cols):
                 curve.setData(t, s_cols[i], skipFiniteCheck=True)
 
         # Update Overlay
-        if f:
-            self.force_text.setText(f"{f[-1]:.3f} N")
+        if display_fz is not None:
+            self.force_text.setText(f"{display_fz:.3f} N")
             # Logic: Get Width of widget, subtract margin (20px).
             # Y=40 pushes it down inside the plot area.
             view_w = self.plot_force.width()
@@ -143,5 +173,7 @@ class DashboardPlots(QWidget):
         self.plot_sensor.enableAutoRange(axis='y')
 
     def clear(self):
-        self.curve_force.setData([], [])
+        self.curve_fx.setData([], [])
+        self.curve_fy.setData([], [])
+        self.curve_fz.setData([], [])
         for c in self.sensor_curves: c.setData([], [])

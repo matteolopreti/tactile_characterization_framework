@@ -42,7 +42,7 @@ class ExperimentCoordinator(QObject):
         self.running = False
         self.stop_requested = False
         self.manual_surface_flag = False
-        self.force_offset = 0.0
+        self.force_offset = [0.0] * 6  # 6-element offset for [Fx, Fy, Fz, Tx, Ty, Tz]
         self.sensor_runner = None
         self.load_cell_runner = None
         self.position_runner = None
@@ -59,8 +59,27 @@ class ExperimentCoordinator(QObject):
             if not self.motor.connected: self.motor.connect()
             info['motor'] = "Connected"
             if not self.load_cell.connected: self.load_cell.connect()
-            self.force_offset = self.load_cell.read_force()
-            info['load_cell'] = f"OK (Offset: {self.force_offset:.2f}N)"
+            # Read all 6 force/torque values for bias offset
+            if hasattr(self.load_cell, 'read_all_forces'):
+                try:
+                    all_forces = self.load_cell.read_all_forces()
+                    if all_forces is not None:
+                        self.force_offset = list(all_forces)[:6]
+                        if len(self.force_offset) < 6:
+                            self.force_offset += [0.0] * (6 - len(self.force_offset))
+                    else:
+                        self.force_offset = [0.0] * 6
+                except Exception:
+                    self.force_offset = [0.0] * 6
+            else:
+                # Fallback: get only Fz
+                try:
+                    fz = self.load_cell.read_force()
+                    self.force_offset = [0.0, 0.0, float(fz), 0.0, 0.0, 0.0]
+                except Exception:
+                    self.force_offset = [0.0] * 6
+            offset_str = ", ".join(f"{f:.2f}" for f in self.force_offset)
+            info['load_cell'] = f"OK (Offset: [{offset_str}] N)"
             if not self.sensor_driver.connected: self.sensor_driver.connect()
             else: # reconnect to refresh
                 self.sensor_driver.disconnect()
@@ -99,7 +118,7 @@ class ExperimentCoordinator(QObject):
         self.motor = motor
         self.load_cell = load_cell
         self.sensor_driver = sensor_driver
-        self.force_offset = 0.0
+        self.force_offset = [0.0] * 6
         self.manual_surface_flag = False
 
     def start_experiment(self, params):
@@ -151,7 +170,9 @@ class ExperimentCoordinator(QObject):
             self.position_runner.start()
 
             cols = self.sensor_driver.get_column_names()
-            header = ["Time", "Pos", "Force_Net", "Phase"] + cols
+            # The emitter writes three position components (z,y,x) and six force/torque
+            # components (Fx, Fy, Fz, Tx, Ty, Tz), so create matching headers.
+            header = ["Time", "Pos_Z", "Pos_Y", "Pos_X", "Fx", "Fy", "Fz", "Tx", "Ty", "Tz", "Phase"] + cols
             db = DataLogger(
                 "experiment",
                 columns=header,
@@ -167,6 +188,7 @@ class ExperimentCoordinator(QObject):
 
             # Calc Physics
             depth = params['depth']
+            horizontal_range = params['horizontal_range']
             speed = params['speed']
             hold_t = params['hold_time']
 
@@ -303,36 +325,149 @@ class ExperimentCoordinator(QObject):
                 self._perf.add_timing("sampling_late_s", late)
 
     def _get_position(self):
+        """Return a 3-element list [z, y, x].
+
+        The motor driver may return a single float (Z only) or an iterable
+        (e.g. [z, y, x]). The async poller likewise may store a float.
+        Coerce any numeric or iterable return into a list of three floats so
+        callers can safely index pos[0], pos[1], pos[2].
+        """
+        def _coerce(v):
+            # None -> zeros
+            if v is None:
+                return [0.0, 0.0, 0.0]
+
+            # Numeric scalar -> Z only
+            if isinstance(v, (int, float)):
+                return [float(v), 0.0, 0.0]
+
+            # Try to treat as iterable
+            try:
+                seq = list(v)
+            except Exception:
+                # Fallback to zeros
+                return [0.0, 0.0, 0.0]
+
+            # Convert elements to floats where possible
+            out = []
+            for i in range(3):
+                try:
+                    out.append(float(seq[i]))
+                except Exception:
+                    out.append(0.0)
+            return out
+
         if self.position_runner:
-            return self.position_runner.get_latest()
-        return self.motor.get_position()
+            return _coerce(self.position_runner.get_latest())
+        return _coerce(self.motor.get_position())
 
     def _get_force(self):
-        if self.load_cell_runner:
-            return self.load_cell_runner.get_latest()
-        return self.load_cell.read_force()
+        """Return all 6 force/torque values [Fx, Fy, Fz, Tx, Ty, Tz].
+
+        Calls read_all_forces() on the load_cell driver if available,
+        otherwise falls back to a tuple with Fz only.
+        """
+        # Try to get all 6 force/torque values from the driver
+        if hasattr(self.load_cell, 'read_all_forces'):
+            try:
+                forces = self.load_cell.read_all_forces()
+                if forces is not None:
+                    # Ensure it's a list-like of 6 floats
+                    try:
+                        forces_list = list(forces)
+                        if len(forces_list) >= 6:
+                            return [float(forces_list[i]) for i in range(6)]
+                        else:
+                            # Pad with zeros if fewer than 6
+                            return [float(forces_list[i]) if i < len(forces_list) else 0.0 for i in range(6)]
+                    except (TypeError, ValueError):
+                        return [0.0] * 6
+            except Exception:
+                pass
+
+        # Fallback: get only Fz from read_force() and return zeros for other axes
+        try:
+            fz = self.load_cell.read_force()
+            return [0.0, 0.0, float(fz), 0.0, 0.0, 0.0]  # [Fx, Fy, Fz, Tx, Ty, Tz]
+        except Exception:
+            return [0.0] * 6
 
     def _emit(self, db, start_t, phase, cols, c, tot_c, tot_dur):
         t = time.perf_counter() - start_t
         try:
             pos = self._get_position()
         except Exception:
-            pos = 0.0
+            pos = [0.0, 0.0, 0.0]
 
         try:
-            f_raw = self._get_force()
+            forces = self._get_force()  # Returns [Fx, Fy, Fz, Tx, Ty, Tz]
         except Exception:
-            f_raw = 0.0
-        f_net = f_raw - self.force_offset
-        s_data = self.sensor_runner.get_latest() or [0.0] * len(cols)
+            forces = [0.0] * 6
 
-        if db: db.log([t, pos, f_net, phase] + s_data)
+        # Ensure forces is a list of 6 elements
+        if not isinstance(forces, (list, tuple)):
+            forces = [0.0] * 6
+        else:
+            try:
+                forces = list(forces)
+                if len(forces) < 6:
+                    forces += [0.0] * (6 - len(forces))
+                elif len(forces) > 6:
+                    forces = forces[:6]
+            except Exception:
+                forces = [0.0] * 6
+
+        # Subtract force_offset (6 elements) to get net forces
+        net_forces = [0.0] * 6
+        try:
+            if isinstance(self.force_offset, (list, tuple)):
+                fo = list(self.force_offset)
+                if len(fo) < 6:
+                    fo += [0.0] * (6 - len(fo))
+            else:
+                fo = [0.0] * 6
+            for i in range(6):
+                try:
+                    net_forces[i] = float(forces[i]) - float(fo[i])
+                except Exception:
+                    net_forces[i] = 0.0
+        except Exception:
+            net_forces = [0.0] * 6
+
+        # Ensure sensor data is a list with exactly len(cols) elements to
+        # prevent column mismatch when logging.
+        s_data = self.sensor_runner.get_latest() or [0.0] * len(cols)
+        # Normalize to list
+        if not isinstance(s_data, (list, tuple)):
+            try:
+                s_data = list(s_data)
+            except Exception:
+                s_data = [s_data]
+        s_data = list(s_data)
+        if len(s_data) < len(cols):
+            s_data += [0.0] * (len(cols) - len(s_data))
+        elif len(s_data) > len(cols):
+            s_data = s_data[:len(cols)]
+
+        # Log net forces: [Time, Pos_Z, Pos_Y, Pos_X, Fx, Fy, Fz, Tx, Ty, Tz, Phase] + sensor_data
+        if db:
+            db.log([t, pos[0], pos[1], pos[2], net_forces[0], net_forces[1], net_forces[2], net_forces[3], net_forces[4], net_forces[5], phase] + s_data)
 
         if self._ui_emit_period <= 0 or (t - self._ui_last_emit) >= self._ui_emit_period:
             self._ui_last_emit = t
             self.sig_packet.emit({
-                "t": t, "f": f_net, "s": s_data, "phase": phase,
-                "cycle": c, "total_cycles": tot_c, "expected_duration": tot_dur,
+                "t": t,
+                # Net forces (offset subtracted): [Fx, Fy, Fz, Tx, Ty, Tz]
+                "forces": net_forces,
+                # Single Fz value (net) used by the GUI's plotting code
+                "fz": net_forces[2],
+                # Backwards-compatible key expected by GUI ingest_packet
+                "f": net_forces[2],
+                "s": s_data,
+                "phase": phase,
+                "cycle": c,
+                "total_cycles": tot_c,
+                "expected_duration": tot_dur,
                 "s_names": cols
             })
 
@@ -347,15 +482,26 @@ class ExperimentCoordinator(QObject):
                 return None
             if self.manual_surface_flag:
                 self.sig_status.emit("SURFACE SET (MANUAL)")
-                return self._get_position()
+                # Return Z coordinate only
+                pos = self._get_position()
+                return float(pos[0])
 
             try:
-                f = abs(self._get_force() - self.force_offset)
+                forces = self._get_force()  # Returns [Fx, Fy, Fz, Tx, Ty, Tz]
+                if isinstance(forces, (list, tuple)) and len(forces) > 2:
+                    # Ensure force_offset is also a list and subtract Fz component
+                    if isinstance(self.force_offset, (list, tuple)) and len(self.force_offset) > 2:
+                        f = abs(forces[2] - self.force_offset[2])  # Use Fz (index 2)
+                    else:
+                        f = abs(forces[2])
+                else:
+                    f = 0.0
             except Exception:
                 f = 0.0
             if f > thresh:
                 self.sig_status.emit("SURFACE DETECTED")
-                return self._get_position()
+                pos = self._get_position()
+                return float(pos[0])
 
             self.motor.move_relative(-step, velocity=1.0)
             self._stop_evt.wait(0.2)

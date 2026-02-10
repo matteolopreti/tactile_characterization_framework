@@ -85,6 +85,7 @@ class DataLogger:
             self.cursor.execute(f"CREATE TABLE IF NOT EXISTS data ({cols_sql_str})")
             self.conn.commit()
 
+        # csv_path and db_path attributes for user access
         if self.enable_csv or self.enable_sqlite:
             csv_path = getattr(self, "csv_path", None)
             db_path = getattr(self, "db_path", None)

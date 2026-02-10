@@ -130,6 +130,34 @@ class ACSMotionStage(IMotionStage):
         except (RuntimeError, OSError) as e:
             raise RuntimeError(f"ACS Move Error: {e}")
 
+    def move_to_absolute_y(self, y_mm: float, velocity: float):
+        if self.hc is None:
+            raise ConnectionError("ACS Controller not connected.")
+
+        try:
+            # 1. Set Velocity
+            sp.SetVelocityImm(self.hc, self.axis_id_y, velocity)
+
+            # 2. Move (Blocking)
+            sp.ToPoint(self.hc, 0, self.axis_id_y, y_mm, sp.SYNCHRONOUS)
+
+        except (RuntimeError, OSError) as e:
+            raise RuntimeError(f"ACS Move Y Error: {e}")
+
+    def move_to_absolute_x(self, x_mm: float, velocity: float):
+        if self.hc is None:
+            raise ConnectionError("ACS Controller not connected.")
+
+        try:
+            # 1. Set Velocity
+            sp.SetVelocityImm(self.hc, self.axis_id_x, velocity)
+
+            # 2. Move (Blocking)
+            sp.ToPoint(self.hc, 0, self.axis_id_x, x_mm, sp.SYNCHRONOUS)
+
+        except (RuntimeError, OSError) as e:
+            raise RuntimeError(f"ACS Move X Error: {e}")
+
     def move_relative(self, dist_mm: float, velocity: float):
         if self.hc is None:
             raise ConnectionError("ACS Controller not connected.")
@@ -137,7 +165,7 @@ class ACSMotionStage(IMotionStage):
         try:
             sp.SetVelocityImm(self.hc, self.axis_id_z, velocity)
 
-            current = self.get_position()
+            current = self.get_position()[0]
             target = current + dist_mm
 
             sp.ToPoint(self.hc, 0, self.axis_id_z, target, sp.SYNCHRONOUS)
@@ -145,13 +173,43 @@ class ACSMotionStage(IMotionStage):
         except (RuntimeError, OSError) as e:
             raise RuntimeError(f"ACS Relative Move Error: {e}")
 
-    def get_position(self) -> float:
+    def move_relative_y(self, dist_mm: float, velocity: float):
         if self.hc is None:
             raise ConnectionError("ACS Controller not connected.")
 
         try:
-            pos = sp.GetFPosition(self.hc, self.axis_id_z)
-            return float(pos)
+            sp.SetVelocityImm(self.hc, self.axis_id_y, velocity)
+
+            current = self.get_position()[1]
+            target = current + dist_mm
+
+            sp.ToPoint(self.hc, 0, self.axis_id_y, target, sp.SYNCHRONOUS)
+
+        except (RuntimeError, OSError) as e:
+            raise RuntimeError(f"ACS Relative Move Y Error: {e}")
+
+    def move_relative_x(self, dist_mm: float, velocity: float):
+        if self.hc is None:
+            raise ConnectionError("ACS Controller not connected.")
+
+        try:
+            sp.SetVelocityImm(self.hc, self.axis_id_x, velocity)
+
+            current = self.get_position()[2]
+            target = current + dist_mm
+
+            sp.ToPoint(self.hc, 0, self.axis_id_x, target, sp.SYNCHRONOUS)
+
+        except (RuntimeError, OSError) as e:
+            raise RuntimeError(f"ACS Relative Move X Error: {e}")
+
+    def get_position(self) -> list:
+        if self.hc is None:
+            raise ConnectionError("ACS Controller not connected.")
+
+        try:
+            pos = [sp.GetFPosition(self.hc, self.axis_id_z), sp.GetFPosition(self.hc, self.axis_id_y), sp.GetFPosition(self.hc, self.axis_id_x)]
+            return list(pos)
         except (RuntimeError, OSError, ValueError) as e:
             raise RuntimeError(f"ACS Position Read Error: {e}")
 
