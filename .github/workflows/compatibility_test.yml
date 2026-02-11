@@ -1,0 +1,40 @@
+name: compatibility-test
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+jobs:
+  compat:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install build backend
+        run: python -m pip install --upgrade pip hatchling
+      - name: Install project (no deps)
+        run: python -m pip install -e . --no-deps
+      - name: Byte-compile sources
+        run: python -m compileall -q core drivers gui interfaces main.py
+      - name: Mock driver smoke test
+        run: |
+          python - <<'PY'
+          from drivers.mock_drivers import MockMotionStage, MockLoadCell, MockTactileSensor
+          m = MockMotionStage()
+          l = MockLoadCell()
+          s = MockTactileSensor()
+          m.connect()
+          l.connect()
+          s.connect()
+          m.disconnect()
+          l.disconnect()
+          s.disconnect()
+          print("mock-smoke-ok")
+          PY

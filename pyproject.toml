@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling>=1.24.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tactile_characterization_framework"
+version = "0.1.0"
+description = "GUI-driven Python framework for repeatable tactile sensor characterization with a motion stage, load cell, and sensor under test."
+readme = "readme.md"
+requires-python = ">=3.9, <3.14"
+license = {text = "LicenseRef-Pending"}
+authors = [
+  {name = "Matteo Lo Preti", email = "mlp95@nus.edu.sg"},
+]
+dependencies = [
+  "numpy",
+  "PySide6",
+  "pyqtgraph",
+  "pyserial",
+  "nidaqmx",
+  "atiiaftt",
+  # 'spiipluspython; platform_system == "Windows" and python_version == "3.13"',
+]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+]
+
+[project.scripts]
+tactile-characterization = "main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["core", "drivers", "gui", "interfaces"]
+include = ["main.py", "config/**"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "core/**",
+  "drivers/**",
+  "gui/**",
+  "interfaces/**",
+  "main.py",
+  "config/**",
+  "readme.md",
+]
