@@ -10,13 +10,39 @@ sensor under test. It supports simulation mode, hardware auto-detect, and struct
 - Streams and plots force and sensor channels in real time.
 - Logs timestamped CSV and SQLite files for analysis.
 
-## Install
+## Startup
+
+This repository targets Python 3.9 through 3.13 and provides reproducible setup paths for publication.
+
+### Quick Start (Recommended)
+
+Use `uv` for the fastest setup and execution:
+
+```bash
+uv venv .venv
+uv pip install -e .
+uv run python main.py
+```
+
+### Standard Installation
+
+Using the Makefile (Linux/macOS/WSL):
+
+```bash
+make setup
+make run
+```
+
+Or using pip/venv:
 
 ```bash
 python -m venv .venv
-.\.venv\Scripts\activate  # Windows
-pip install -r requirements.txt
+.venv\Scripts\python -m pip install --upgrade pip
+.venv\Scripts\python -m pip install -e .
+.venv\Scripts\python main.py
 ```
+
+For macOS/Linux, replace `.venv\Scripts\python` with `.venv/bin/python`.
 
 ## Run (simulation)
 
@@ -24,7 +50,13 @@ pip install -r requirements.txt
 2. Start the app:
 
 ```bash
-python main.py
+uv run python main.py
+```
+
+If you used the standard venv setup, run:
+
+```bash
+.venv\Scripts\python main.py
 ```
 
 ## Run with hardware
@@ -75,6 +107,7 @@ Built-in drivers:
 - `drivers/mock_drivers.py`: simulation drivers (no hardware)
 
 If a vendor library is missing, that driver will not connect (or will run in simulation where available).
+Install proprietary vendor packages manually inside the Pixi environment.
 
 ## Data output
 

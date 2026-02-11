@@ -240,7 +240,7 @@ class ExperimentCoordinator(QObject):
 
         def motion_worker():
             """
-            continuously move motor to target position
+            continuously move the motor to a target position
             """
             try:
                 self.motor.move_to_absolute(
