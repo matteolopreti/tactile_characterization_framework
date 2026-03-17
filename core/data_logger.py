@@ -6,16 +6,16 @@ import sqlite3
 import threading
 from datetime import datetime
 
-
 class DataLogger:
     def __init__(
             self,
-            base_filename="experiment",
+            base_filename="Uniaxial",
             columns=None,
             async_logging=False,
             queue_max=10000,
             enable_csv=True,
-            enable_sqlite=True
+            enable_sqlite=True,
+            params=None
     ):
         """
         Handles simultaneous logging to SQLite and CSV.
@@ -27,6 +27,7 @@ class DataLogger:
             queue_max (int): Max queued rows before dropping new data.
             enable_csv (bool): Enable CSV output.
             enable_sqlite (bool): Enable SQLite output.
+            params (dict): Optional experiment parameters to include in filename
         """
         if not columns:
             raise ValueError("DataLogger requires a list of column names.")
@@ -55,10 +56,16 @@ class DataLogger:
 
         # Generate a unique timestamp for this run (ISO-like format safe for filenames)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        
+        # Format filename with parameters if provided
+        if params:
+            formatted_basename = self._format_filename_with_params(base_filename, params)
+        else:
+            formatted_basename = base_filename
 
         if self.enable_csv:
             # 2. Setup CSV (Immediate access)
-            self.csv_path = os.path.join(self.data_dir, f"{base_filename}_{timestamp}.csv")
+            self.csv_path = os.path.join(self.data_dir, f"{formatted_basename}_{timestamp}.csv")
             # newline='' prevents blank lines on Windows systems
             self.csv_file = open(self.csv_path, mode='w', newline='')
             self.csv_writer = csv.writer(self.csv_file)
@@ -66,7 +73,7 @@ class DataLogger:
 
         if self.enable_sqlite:
             # 3. Setup SQLite (Robust storage)
-            self.db_path = os.path.join(self.data_dir, f"{base_filename}_{timestamp}.db")
+            self.db_path = os.path.join(self.data_dir, f"{formatted_basename}_{timestamp}.db")
             # check_same_thread=False allows the Coordinator thread to use this connection
             self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.cursor = self.conn.cursor()
@@ -94,6 +101,35 @@ class DataLogger:
             self._queue = queue.Queue(maxsize=queue_max)
             self._worker = threading.Thread(target=self._worker_loop, daemon=True)
             self._worker.start()
+
+    def _format_filename_with_params(self, base_filename, params):
+        """
+        Format filename with experiment parameters.
+        
+        Example output: experiment_D0.5_S0.1_C5_R50_T1.0_F0.4
+        Where:
+          D = Depth (mm)
+          S = Speed (mm/s)
+          C = Cycles
+          R = Sampling Rate (Hz)
+          T = Hold Time (s)
+          F = Contact Force (N)
+        """
+        if not params:
+            return base_filename
+            
+        depth = params.get('depth', 0.5)
+        speed = params.get('speed', 0.1)
+        cycles = params.get('cycles', 5)
+        sampling_rate = params.get('sampling_rate', 50)
+        hold_time = params.get('hold_time', 1.0)
+        contact_force = params.get('contact_force', 0.4)
+        
+        formatted = (
+            f"{base_filename}_D{depth:.1f}_S{speed:.2f}_C{cycles}_R{sampling_rate:.0f}_"
+            f"T{hold_time:.1f}_F{contact_force:.2f}"
+        )
+        return formatted
 
     def log(self, data_list):
         """

@@ -9,8 +9,6 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from core.hardware_config import get_hardware_components
 from core.coordinator import ExperimentCoordinator
 from gui.main_window import TactileTestUI
-
-
 def main():
     app = QApplication(sys.argv)
 
