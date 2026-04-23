@@ -258,7 +258,7 @@ class TactileTestUI(QMainWindow):
         self.cmb_sensor_port.currentTextChanged.connect(self._update_required_highlights)
         self.cmb_sensor_baud.currentTextChanged.connect(self._update_required_highlights)
 
-        self.btn_hw_save = QPushButton("Save Hardware Config")
+        self.btn_hw_save = QPushButton("Save Config")
         self.btn_hw_save.setObjectName("btn_primary")
         self.btn_hw_save.clicked.connect(lambda: self._save_hardware_config())
         l_hw.addWidget(self.btn_hw_save)
@@ -283,23 +283,26 @@ class TactileTestUI(QMainWindow):
             "Experiment", QGridLayout)
         l_phys.setVerticalSpacing(10)
 
-        self.spin_depth = self._add_p(l_phys, "Depth (mm):", 2.0, 0, 0.0, 20.0)
-        self.spin_speed = self._add_p(l_phys, "Speed (mm/s):", 0.2, 1, 0.01, 5.0)
-        self.spin_hold = self._add_p(l_phys, "Hold (s):", 1.0, 2, 0.0, 60.0)
-        self.spin_contact = self._add_p(l_phys, "Contact (N):", 0.4, 3, 0.01, 10.0)
-        self.spin_horizontal_range = self._add_p(l_phys, "Horizontal Range(mm):", 5.0, 6, 0.1, 50.0)
+        exp_cfg = self._hardware_cfg['experiment']
+
+        self.spin_depth = self._add_p(l_phys, "Depth (mm):", exp_cfg['depth_mm'], 2, 0.0, 20.0)
+        self.spin_speed = self._add_p(l_phys, "Speed (mm/s):", exp_cfg['speed_mm_s'], 1, 0.01, 5.0)
+        self.spin_hold = self._add_p(l_phys, "Hold (s):", exp_cfg['hold_time_s'], 2, 0.0, 60.0)
+        self.spin_contact = self._add_p(l_phys, "Contact (N):", exp_cfg['contact_force_n'], 3, 0.01, 10.0)
+        self.spin_horizontal_range = self._add_p(l_phys, "Horizontal Range(mm):", exp_cfg['horizontal_range_mm'], 6, 0.1, 50.0)
+        self.spin_vertical_step = self._add_p(l_phys, "Vertical Step (mm):", exp_cfg['vertical_step_mm'], 7, 0.01, 5.0)
 
         # New: Sampling Rate
         self.spin_rate = QSpinBox()
         self.spin_rate.setRange(1, 200)
-        self.spin_rate.setValue(50)  # Default 50Hz
+        self.spin_rate.setValue(exp_cfg['sampling_rate_hz'])  # Default from config
         self.spin_rate.setButtonSymbols(QAbstractSpinBox.PlusMinus)
         self.spin_rate.valueChanged.connect(self._recalc_buffer_limits)
         l_phys.addWidget(QLabel("Logging Rate (Hz):"), 4, 0)
         l_phys.addWidget(self.spin_rate, 4, 1)
 
         self.spin_cycles = QSpinBox()
-        self.spin_cycles.setValue(5)
+        self.spin_cycles.setValue(exp_cfg['cycles'])
         self.spin_cycles.setRange(1, 100)
         self.spin_cycles.setButtonSymbols(QAbstractSpinBox.PlusMinus)
         l_phys.addWidget(QLabel("Cycles:"), 5, 0)
@@ -311,15 +314,16 @@ class TactileTestUI(QMainWindow):
         self.spin_rate.valueChanged.connect(self._update_exp_summary)
         self.spin_cycles.valueChanged.connect(self._update_exp_summary)
         self.spin_horizontal_range.valueChanged.connect(self._update_exp_summary)
+        self.spin_vertical_step.valueChanged.connect(self._update_exp_summary)
         sidebar_layout.addWidget(self.grp_phys)
 
         # 2. LOGGING
         self.grp_log, l_log, self.lbl_log_summary, self.log_content, self.log_toggle = self._create_section("Logging",
                                                                                                             QGridLayout)
         self.chk_csv = QCheckBox("CSV")
-        self.chk_csv.setChecked(True)
+        self.chk_csv.setChecked(self._hardware_cfg.get('logging', {}).get('csv_enabled', True))
         self.chk_sqlite = QCheckBox("SQLite")
-        self.chk_sqlite.setChecked(False)
+        self.chk_sqlite.setChecked(self._hardware_cfg.get('logging', {}).get('sqlite_enabled', False))
         l_log.addWidget(self.chk_csv, 0, 0)
         l_log.addWidget(self.chk_sqlite, 0, 1)
         self.chk_csv.stateChanged.connect(self._update_log_summary)
@@ -331,7 +335,7 @@ class TactileTestUI(QMainWindow):
                                                                                                              QGridLayout)
         self.spin_window = QSpinBox()
         self.spin_window.setRange(5, 300)
-        self.spin_window.setValue(10)
+        self.spin_window.setValue(self._hardware_cfg.get('view', {}).get('window_duration_s', 10))
         self.spin_window.setButtonSymbols(QAbstractSpinBox.PlusMinus)
         self.spin_window.valueChanged.connect(self._recalc_buffer_limits)
         l_ui.addWidget(QLabel("Window (s):"), 0, 0)
@@ -778,9 +782,13 @@ class TactileTestUI(QMainWindow):
                 'contact_force': self.spin_contact.value(),
                 'sampling_rate': self.spin_rate.value(),  # Pass User Rate
                 'horizontal_range': self.spin_horizontal_range.value(),
+                'vertical_step': self.spin_vertical_step.value(),
                 'log_csv': self.chk_csv.isChecked(),
                 'log_sqlite': self.chk_sqlite.isChecked()
             }
+            print("[GUI] Parameters being sent to coordinator:")
+            for key, value in params.items():
+                print(f"  {key}: {value}")
             self.coord.start_experiment(params)
 
         else:
@@ -1042,6 +1050,27 @@ class TactileTestUI(QMainWindow):
 
         cfg["sensor"]["config"]["port"] = self.cmb_sensor_port.currentText().strip()
         cfg["sensor"]["config"]["baud"] = self._current_baud()
+
+        # Save experiment parameters
+        cfg.setdefault("experiment", {})
+        cfg["experiment"]["depth_mm"] = self.spin_depth.value()
+        cfg["experiment"]["speed_mm_s"] = self.spin_speed.value()
+        cfg["experiment"]["hold_time_s"] = self.spin_hold.value()
+        cfg["experiment"]["contact_force_n"] = self.spin_contact.value()
+        cfg["experiment"]["horizontal_range_mm"] = self.spin_horizontal_range.value()
+        cfg["experiment"]["vertical_step_mm"] = self.spin_vertical_step.value()
+        cfg["experiment"]["sampling_rate_hz"] = self.spin_rate.value()
+        cfg["experiment"]["cycles"] = self.spin_cycles.value()
+
+        # Save logging parameters
+        cfg.setdefault("logging", {})
+        cfg["logging"]["csv_enabled"] = self.chk_csv.isChecked()
+        cfg["logging"]["sqlite_enabled"] = self.chk_sqlite.isChecked()
+
+        # Save view parameters
+        cfg.setdefault("view", {})
+        cfg["view"]["window_duration_s"] = self.spin_window.value()
+
         return cfg
 
     def _apply_hardware_for_session(self, show_message=True):

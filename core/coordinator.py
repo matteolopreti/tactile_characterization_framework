@@ -138,6 +138,10 @@ class ExperimentCoordinator(QObject):
     def _run_protocol(self, params):
         db = None
         try:
+            print("[Coordinator] Parameters received from GUI:")
+            for key, value in params.items():
+                print(f"  {key}: {value}")
+
             rate_hz = float(params.get('sampling_rate', 50))
             if rate_hz <= 0:
                 raise ValueError("sampling_rate must be > 0")
@@ -189,41 +193,64 @@ class ExperimentCoordinator(QObject):
             # Calc Physics
             depth = params['depth']
             horizontal_range = params['horizontal_range']
+            vertical_step = params['vertical_step']
             speed = params['speed']
             hold_t = params['hold_time']
 
             total_cycles = params['cycles'] + 1
-            dur = depth/speed
-            cycle_dur = (2 * depth / speed) + hold_t
-            total_dur = total_cycles * cycle_dur
+            dur = 8*horizontal_range/speed  # Time for all 8 horizontal movements (X+, X+return, X-, X-return, Y+, Y+return, Y-, Y-return)
+            single_cycle_dur = dur + 8*hold_t  # One complete cycle: horizontal movement + 8 individual hold periods
+            num_vertical_levels = int(depth / vertical_step) + 1  # Number of vertical test levels (0 to depth, step of vertical_step)
+            total_dur = num_vertical_levels * total_cycles * single_cycle_dur  # Total expected duration
             start_t = time.perf_counter()
 
-            for c in range(total_cycles):
+            print("[Coordinator] Calculated timing:")
+            print(f"  Horizontal movement duration (8 legs): {dur:.2f} s")
+            print(f"  Single cycle duration: {single_cycle_dur:.2f} s")
+            print(f"  Number of vertical levels: {num_vertical_levels}")
+            print(f"  Total cycles per level: {total_cycles}")
+            print(f"  Total expected duration: {total_dur:.2f} s ({total_dur/60:.1f} min)")
+
+            # Outer loop: Test at different vertical levels
+            vertical_level = 0
+            while vertical_level <= depth:
                 if self.stop_requested: break
 
-                is_mullin = (c == 0)
-                prefix = "MULLIN" if is_mullin else f"CYCLE_{c}"
+                current_depth = vertical_level
+                current_target_z = surface_z - current_depth
+                vertical_level_prefix = f"LEVEL_{vertical_level:.1f}mm"
 
-                # 1. LOAD (Parallel Move)
-                target = surface_z - depth
-                self._run_phase_parallel(
-                    target, speed, f"{prefix}_LOADING",
-                    db, start_t, cols, c, total_cycles, total_dur, rate_hz, dur
-                )
-                if self.stop_requested: break
+                self.sig_status.emit(f"Testing at vertical level: {current_depth:.1f} mm")
 
-                # 2. HOLD (Parallel Wait)
-                self._run_hold_parallel(
-                    hold_t, f"{prefix}_HOLDING",
-                    db, start_t, cols, c, total_cycles, total_dur, rate_hz
-                )
-                if self.stop_requested: break
+                # Inner loop: Cycles at current vertical level
+                for c in range(total_cycles):
+                    if self.stop_requested: break
 
-                # 3. UNLOAD (Parallel Move)
-                self._run_phase_parallel(
-                    surface_z, speed, f"{prefix}_UNLOADING",
-                    db, start_t, cols, c, total_cycles, total_dur, rate_hz, dur
-                )
+                    is_mullin = (c == 0)
+                    prefix = f"{vertical_level_prefix}_{'MULLIN' if is_mullin else f'CYCLE_{c}'}"
+
+                    # 1. LOAD (Horizontal Move)
+                    self._run_horizontal_movement(
+                        horizontal_range, speed, f"{prefix}_LOADING",
+                        db, start_t, cols, c, total_cycles, total_dur, rate_hz
+                    )
+                    if self.stop_requested: break
+
+                    # 2. HOLD (Parallel Wait)
+                    self._run_hold_parallel(
+                        hold_t, f"{prefix}_HOLDING",
+                        db, start_t, cols, c, total_cycles, total_dur, rate_hz
+                    )
+                    if self.stop_requested: break
+
+                    # 3. moving to next level (Horizontal Move)
+                    self._run_phase_parallel(
+                        current_target_z, speed, f"{prefix}_VERTICAL_MOVE",
+                        db, start_t, cols, c, total_cycles, total_dur, rate_hz, duration=depth/(vertical_step*speed)
+                    )
+
+                # Move to next vertical level
+                vertical_level += vertical_step
 
             self.sig_finished.emit()
             self.motor.move_to_absolute(surface_z + 5.0, velocity=5.0)
@@ -310,6 +337,88 @@ class ExperimentCoordinator(QObject):
         rate = RateLimiter(rate_hz)
         rate.reset()
         self._emit_loop(lambda: time.perf_counter() >= end, rate, db, start_t, phase, cols, c, tot_c, tot_dur)
+
+    def _run_horizontal_movement(
+            self,
+            distance,
+            speed,
+            phase,
+            db,
+            start_t,
+            cols,
+            c,
+            tot_c,
+            tot_dur,
+            rate_hz
+    ):
+        """
+        Move horizontally in X and Y directions with data logging.
+
+        Parameters:
+        - distance: absolute distance to move (positive value)
+        - speed: movement velocity
+        - phase: base phase label for logging
+        - db, start_t, cols, c, tot_c, tot_dur, rate_hz: logging parameters
+
+        Performs the following sequence:
+        1. Move +X, return to 0
+        2. Move -X, return to 0
+        3. Move +Y, return to 0
+        4. Move -Y, return to 0
+        """
+        leg_duration = distance / speed
+        movements = [
+            (lambda: self.motor.move_to_absolute_x(distance, velocity=speed), f"{phase}_X+"),
+            (lambda: self.motor.move_to_absolute_x(0, velocity=speed), f"{phase}_X+_RETURN"),
+            (lambda: self.motor.move_to_absolute_x(-distance, velocity=speed), f"{phase}_X-"),
+            (lambda: self.motor.move_to_absolute_x(0, velocity=speed), f"{phase}_X-_RETURN"),
+            (lambda: self.motor.move_relative_y(distance, velocity=speed), f"{phase}_Y+"),
+            (lambda: self.motor.move_relative_y(-distance, velocity=speed), f"{phase}_Y+_RETURN"),
+            (lambda: self.motor.move_relative_y(-distance, velocity=speed), f"{phase}_Y-"),
+            (lambda: self.motor.move_relative_y(distance, velocity=speed), f"{phase}_Y-_RETURN"),
+        ]
+
+        rate = RateLimiter(rate_hz)
+
+        for movement_func, movement_phase in movements:
+            if self.stop_requested or self._stop_evt.is_set():
+                break
+
+            done_evt = threading.Event()
+
+            def motion_worker(func):
+                """Carries out the motor movement in a separate thread."""
+                try:
+                    func()
+                except Exception as e:
+                    print(f"Horizontal movement error: {e}")
+                finally:
+                    done_evt.set()
+
+            t = threading.Thread(target=motion_worker, args=(movement_func,), daemon=True)
+            t.start()
+
+            # Main thread: emit while motion is in progress
+            rate.reset()
+            end_time = time.perf_counter() + leg_duration
+
+            while (
+                    time.perf_counter() < end_time
+                    and not self.stop_requested
+                    and not self._stop_evt.is_set()
+            ):
+                self._emit(
+                    db,
+                    start_t,
+                    movement_phase,  # Use the specific phase for this leg
+                    cols,
+                    c,
+                    tot_c,
+                    tot_dur
+                )
+                rate.wait(self._stop_evt)
+
+            t.join()
 
     def _emit_loop(self, stop_check, rate, db, start_t, phase, cols, c, tot_c, tot_dur):
         while not stop_check():
