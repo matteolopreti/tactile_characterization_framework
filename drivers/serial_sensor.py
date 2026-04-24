@@ -183,9 +183,9 @@ class SerialMagneticSensor(ITactileSensor):
 
 if __name__ == "__main__":
     if serial:
-        print("Driver loaded. Attempting auto-detect on COM4...")
+        print("Driver loaded. Attempting auto-detect on COM6...")
         try:
-            drv = SerialMagneticSensor(port="COM4")
+            drv = SerialMagneticSensor(port="COM6")
             cols = drv.get_column_names()
             print(f"Result: {cols}")
         except Exception as test_err:

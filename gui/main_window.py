@@ -279,10 +279,11 @@ class TactileTestUI(QMainWindow):
             "Experiment", QGridLayout)
         l_phys.setVerticalSpacing(10)
 
-        self.spin_depth = self._add_p(l_phys, "Depth (mm):", 0.5, 0, 0.0, 20.0) # default 0.5mm, range 0-20mm
-        self.spin_speed = self._add_p(l_phys, "Speed (mm/s):", 0.1, 1, 0.01, 5.0) #default 0.1mm/s, range 0.01-5mm/s
-        self.spin_hold = self._add_p(l_phys, "Hold (s):", 1.0, 2, 0.0, 60.0)
-        self.spin_contact = self._add_p(l_phys, "Contact (N):", 0.4, 3, 0.01, 10.0)
+        exp_cfg = self._hardware_cfg.get("experiment", {})
+        self.spin_depth = self._add_p(l_phys, "Depth (mm):", exp_cfg.get("depth"), 0, 0.0, 20.0) # default 0.5mm, range 0-20mm
+        self.spin_speed = self._add_p(l_phys, "Speed (mm/s):", exp_cfg.get("speed"), 1, 0.01, 5.0) #default 0.1mm/s, range 0.01-5mm/s
+        self.spin_hold = self._add_p(l_phys, "Hold (s):", exp_cfg.get("hold_time"), 2, 0.0, 60.0)
+        self.spin_contact = self._add_p(l_phys, "Contact (N):", exp_cfg.get("contact_force"), 3, 0.01, 10.0)
 
         # New: Sampling Rate
         self.spin_rate = QSpinBox()
