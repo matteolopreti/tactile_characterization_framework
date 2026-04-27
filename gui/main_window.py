@@ -2,7 +2,7 @@ import json
 import threading
 
 import numpy as np
-from PySide6.QtCore import Slot, QTimer, Qt
+from PySide6.QtCore import Slot, QTimer, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QLabel, QPushButton, QDoubleSpinBox, QSpinBox,
@@ -18,6 +18,9 @@ from .plotting import DashboardPlots
 
 
 class TactileTestUI(QMainWindow):
+    # Signal emitted whenever spinbox parameters change
+    sig_parameters_changed = Signal(dict)
+    
     def __init__(self, coordinator):
         super().__init__()
         self.coord = coordinator
@@ -276,10 +279,11 @@ class TactileTestUI(QMainWindow):
             "Experiment", QGridLayout)
         l_phys.setVerticalSpacing(10)
 
-        self.spin_depth = self._add_p(l_phys, "Depth (mm):", 2.0, 0, 0.0, 20.0)
-        self.spin_speed = self._add_p(l_phys, "Speed (mm/s):", 0.2, 1, 0.01, 5.0)
-        self.spin_hold = self._add_p(l_phys, "Hold (s):", 1.0, 2, 0.0, 60.0)
-        self.spin_contact = self._add_p(l_phys, "Contact (N):", 0.4, 3, 0.01, 10.0)
+        exp_cfg = self._hardware_cfg.get("experiment", {})
+        self.spin_depth = self._add_p(l_phys, "Depth (mm):", exp_cfg.get("depth"), 0, 0.0, 20.0) # default 0.5mm, range 0-20mm
+        self.spin_speed = self._add_p(l_phys, "Speed (mm/s):", exp_cfg.get("speed"), 1, 0.01, 5.0) #default 0.1mm/s, range 0.01-5mm/s
+        self.spin_hold = self._add_p(l_phys, "Hold (s):", exp_cfg.get("hold_time"), 2, 0.0, 60.0)
+        self.spin_contact = self._add_p(l_phys, "Contact (N):", exp_cfg.get("contact_force"), 3, 0.01, 10.0)
 
         # New: Sampling Rate
         self.spin_rate = QSpinBox()
@@ -302,6 +306,13 @@ class TactileTestUI(QMainWindow):
         self.spin_contact.valueChanged.connect(self._update_exp_summary)
         self.spin_rate.valueChanged.connect(self._update_exp_summary)
         self.spin_cycles.valueChanged.connect(self._update_exp_summary)
+        # Send all spinbox parameters whenever any changes
+        self.spin_depth.valueChanged.connect(self._on_spinbox_changed)
+        self.spin_speed.valueChanged.connect(self._on_spinbox_changed)
+        self.spin_hold.valueChanged.connect(self._on_spinbox_changed)
+        self.spin_contact.valueChanged.connect(self._on_spinbox_changed)
+        self.spin_rate.valueChanged.connect(self._on_spinbox_changed)
+        self.spin_cycles.valueChanged.connect(self._on_spinbox_changed)
         sidebar_layout.addWidget(self.grp_phys)
 
         # 2. LOGGING
@@ -607,6 +618,29 @@ class TactileTestUI(QMainWindow):
 
     def _update_view_summary(self):
         self.lbl_view_summary.setText(f"Window {self.spin_window.value()} s")
+
+    def _collect_spinbox_parameters(self):
+        """Collect all parameter spinbox values into a single dictionary."""
+        params = {
+            'depth': self.spin_depth.value(),
+            'speed': self.spin_speed.value(),
+            'hold_time': self.spin_hold.value(),
+            'cycles': self.spin_cycles.value(),
+            'contact_force': self.spin_contact.value(),
+            'sampling_rate': self.spin_rate.value(),
+            'window': self.spin_window.value(),
+            'log_csv': self.chk_csv.isChecked(),
+            'log_sqlite': self.chk_sqlite.isChecked()
+        }
+        return params
+
+    @Slot()
+    def _on_spinbox_changed(self):
+        """Called whenever any spinbox or checkbox value changes. Emits signal with all parameters."""
+        params = self._collect_spinbox_parameters()
+        self.sig_parameters_changed.emit(params)
+        # Optional: Print to console for debugging
+        print(f"Parameters updated: {params}")
 
     def _set_connection_help(self, err):
         msg = [

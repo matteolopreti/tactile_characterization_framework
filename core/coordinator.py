@@ -157,7 +157,8 @@ class ExperimentCoordinator(QObject):
                 columns=header,
                 async_logging=True,
                 enable_csv=params.get("log_csv", True),
-                enable_sqlite=params.get("log_sqlite", True)
+                enable_sqlite=params.get("log_sqlite", True),
+                params=params
             )
 
             # Surface Finding

@@ -14,6 +14,19 @@ sensor under test. It supports simulation mode, hardware auto-detect, and struct
 
 This repository targets Python 3.9 through 3.13 and provides reproducible setup paths for publication.
 
+### Install `uv` (Recommended)
+
+`uv` is an extremely fast Python package and project manager. If you don't have it installed:
+
+- **Windows:**
+  ```powershell
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+  ```
+- **macOS/Linux:**
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+
 ### Quick Start (Recommended)
 
 Use `uv` for the fastest setup and execution:

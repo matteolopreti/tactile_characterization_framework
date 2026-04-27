@@ -17,8 +17,14 @@
   "sensor": {
     "driver": "drivers.serial_sensor.SerialMagneticSensor",
     "config": {
-      "port": "COM4",
+      "port": "COM6",
       "baud": 115200
     }
+  },
+  "experiment": {
+    "depth": 0.5,
+    "speed": 0.1,
+    "hold_time": 0.5,
+    "contact_force": 0.04
   }
 }
