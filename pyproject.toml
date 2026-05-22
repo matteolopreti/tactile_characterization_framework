@@ -5,10 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "tactile_characterization_framework"
 version = "0.1.0"
-description = "GUI-driven Python framework for repeatable tactile sensor characterization with a motion stage, load cell, and sensor under test."
+description = "GUI-driven Python framework for repeatable uniaxial tactile sensor characterization (Test 1: Quasi-Static Indentation) with a motion stage, load cell, and sensor under test."
 readme = "readme.md"
 requires-python = ">=3.9, <3.14"
-license = {text = "LicenseRef-Pending"}
+license = {text = "MIT"}
+license-files = ["LICENSE"]
 authors = [
   {name = "Matteo Lo Preti", email = "mlp95@nus.edu.sg"},
 ]
@@ -23,6 +24,7 @@ dependencies = [
 ]
 
 classifiers = [
+  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.9",
@@ -49,4 +51,5 @@ include = [
   "main.py",
   "config/**",
   "readme.md",
+  "LICENSE",
 ]
