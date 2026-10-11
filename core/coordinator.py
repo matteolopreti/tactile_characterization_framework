@@ -151,7 +151,7 @@ class ExperimentCoordinator(QObject):
             self.position_runner.start()
 
             cols = self.sensor_driver.get_column_names()
-            header = ["Time", "Pos", "Force_Net", "Phase"] + cols
+            header = ["Time", "Pos", "Force_Net", "Phase"] + cols + ["sensor_t_s", "sensor_seq"]
             db = DataLogger(
                 "experiment",
                 columns=header,
@@ -314,6 +314,8 @@ class ExperimentCoordinator(QObject):
         return self.load_cell.read_force()
 
     def _emit(self, db, start_t, phase, cols, c, tot_c, tot_dur):
+        # Snapshot the sensor first so sensor_t_s <= t always.
+        s_data, s_seq, s_arr = self.sensor_runner.get_latest_stamped()
         t = time.perf_counter() - start_t
         try:
             pos = self._get_position()
@@ -325,9 +327,12 @@ class ExperimentCoordinator(QObject):
         except Exception:
             f_raw = 0.0
         f_net = f_raw - self.force_offset
-        s_data = self.sensor_runner.get_latest() or [0.0] * len(cols)
+        if s_seq:
+            s_t = s_arr - start_t
+        else:  # no frame yet: NaN, not fabricated zeros
+            s_data, s_t = [float("nan")] * len(cols), float("nan")
 
-        if db: db.log([t, pos, f_net, phase] + s_data)
+        if db: db.log([t, pos, f_net, phase] + s_data + [s_t, s_seq])
 
         if self._ui_emit_period <= 0 or (t - self._ui_last_emit) >= self._ui_emit_period:
             self._ui_last_emit = t

@@ -150,6 +150,10 @@ main.py      Entry point
 
 Copy `drivers/_template.py`, implement the relevant interface, and optionally declare `PROBE_PRIORITY` and `probe(config)` for auto-detect. See `drivers/README.md` for the checklist. New drivers become selectable in the GUI without further wiring.
 
+## Changelog
+
+- Sensor frames are now stamped with the host read time and numbered: two new trailing log columns, `sensor_t_s` (same clock as `Time`) and `sensor_seq` (frame counter; a repeated value marks a stale frame). Before the first frame, sensor values and `sensor_t_s` are NaN (CSV `nan`, SQLite NULL) and `sensor_seq` is 0, instead of zeros. The host read time equals the frame arrival time only while the reader keeps up with the device; with `TCF_SENSOR_MAX_HZ` throttling, a backlog forms and the stamp lags arrival.
+
 ## Companion paper
 
 The Component–System Dichotomy, the calibrated-interaction paradigm, and the broader Design-for-Benchmarking culture that motivate this protocol are developed in:
