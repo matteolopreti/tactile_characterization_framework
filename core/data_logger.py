@@ -4,9 +4,12 @@ import os
 import queue
 import sqlite3
 import threading
+import time
 from datetime import datetime
 
 class DataLogger:
+    COMMIT_INTERVAL_S = 1.0  # max age of uncommitted SQLite rows
+
     def __init__(
             self,
             base_filename="Uniaxial",
@@ -43,6 +46,7 @@ class DataLogger:
         self.csv_writer = None
         self.conn = None
         self.cursor = None
+        self._last_commit = time.perf_counter()
         self.data_dir = None
 
         if not self.enable_csv and not self.enable_sqlite:
@@ -76,6 +80,9 @@ class DataLogger:
             self.db_path = os.path.join(self.data_dir, f"{formatted_basename}_{timestamp}.db")
             # check_same_thread=False allows the Coordinator thread to use this connection
             self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            mode = self.conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+            if mode.lower() != "wal":
+                print(f"[DataLogger] WARNING: WAL not enabled (journal_mode={mode})")
             self.cursor = self.conn.cursor()
 
             # Create Table Dynamically
@@ -165,8 +172,13 @@ class DataLogger:
             sql = f"INSERT INTO data VALUES ({placeholders})"
             self.cursor.execute(sql, data_list)
 
-        # Note: We do NOT commit after every insert to maximize speed (500Hz+ capability).
-        # Data is committed on self.close().
+            # Commit at most once per COMMIT_INTERVAL_S (not per insert, for 500Hz+ speed):
+            # WAL readers see rows within that interval; the final commit is in close().
+            # The check runs only when a row arrives: if logging pauses, the last rows stay
+            # uncommitted until the next row or close().
+            if time.perf_counter() - self._last_commit >= self.COMMIT_INTERVAL_S:
+                self.conn.commit()
+                self._last_commit = time.perf_counter()
 
     def _worker_loop(self):
         while True:
