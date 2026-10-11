@@ -85,6 +85,8 @@ class DataLogger:
             for col in self.columns:
                 if col == "Phase":
                     cols_sql.append(f"'{col}' TEXT")
+                elif col == "sensor_seq":
+                    cols_sql.append(f"'{col}' INTEGER")
                 else:
                     cols_sql.append(f"'{col}' REAL")
 

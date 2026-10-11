@@ -1,4 +1,5 @@
 import threading
+import time
 
 from .timing import RateLimiter
 
@@ -12,6 +13,8 @@ class AsyncSensorRunner:
         """
         self.driver = sensor_driver
         self.latest_data = []
+        self.latest_t = None  # perf_counter at frame arrival
+        self.seq = 0  # number of frames received so far
         self.running = False
         self._lock = threading.Lock()
         self._thread = None
@@ -50,10 +53,15 @@ class AsyncSensorRunner:
             try:
                 # Blocks here until serial data arrives (efficient)
                 data = self.driver.read_single_sample()
+                # Frames carry no device timestamp (bare CSV values), so host arrival
+                # time is the best available stamp; a device counter needs firmware support.
+                t_arr = time.perf_counter()
 
                 if data is not None:
                     with self._lock:
                         self.latest_data = data
+                        self.latest_t = t_arr
+                        self.seq += 1
                 else:
                     # If read timed out or returned None, sleep briefly
                     self._stop_evt.wait(0.001)
@@ -72,6 +80,11 @@ class AsyncSensorRunner:
         with self._lock:
             # Return copy to avoid race conditions
             return list(self.latest_data) if self.latest_data else []
+
+    def get_latest_stamped(self):
+        """Returns (data, seq, arrival_perf_counter) read atomically; seq 0 = no frame yet."""
+        with self._lock:
+            return list(self.latest_data), self.seq, self.latest_t
 
     def get_column_names(self):
         """Pass-through to the driver."""
